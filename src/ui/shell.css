@@ -1,6 +1,7 @@
 :root {
   color: #2d2d2d;
   background: #e6dfd4;
+  color-scheme: only light;
   font-family: "Noto Sans SC", sans-serif;
 }
 
@@ -26,6 +27,8 @@ button:focus-visible { outline: 3px solid #2d2d2d; outline-offset: 2px; }
 }
 
 html, body, #app { height: 100%; }
+
+#app:has(.stage[data-layout="port"]) { padding: 6px; }
 
 .switcher {
   display: flex;
@@ -63,45 +66,13 @@ html, body, #app { height: 100%; }
   box-shadow: 0 10px 0 rgb(45 45 45 / 8%);
 }
 
-.turn {
-  display: none;
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 28px;
-  background: #ffe7a3;
-  color: #2d2d2d;
-  text-align: center;
+html, body, button, input {
+  color-scheme: only light;
 }
 
-.turn strong {
-  font-family: Fredoka, "Noto Sans SC", sans-serif;
-  font-size: 32px;
-}
-
-.turn p { margin: 0; font-size: 16px; line-height: 1.4; max-width: 18em; }
-
-.turn-phone {
-  width: 72px;
-  height: 112px;
-  border: 4px solid #2d2d2d;
-  border-radius: 16px;
-  background: #fff;
-  animation: turn-phone 1.6s ease-in-out infinite;
-}
-
-@keyframes turn-phone {
-  0%, 20% { transform: rotate(0deg); }
-  55%, 100% { transform: rotate(90deg); }
-}
-
-@media (orientation: portrait) and (max-width: 1100px) {
-  .turn { display: flex; }
-}
+.stage[data-layout="port"] .slot-wrap small { font-size: 10px; margin-top: 2px; }
+.stage[data-layout="port"] .dock { padding: 6px 8px 8px; gap: 6px; }
+.stage[data-layout="port"] .relic-open { min-width: 56px; min-height: 40px; font-size: 12px; padding: 0 6px; }
 
 .topbar {
   display: flex;
@@ -203,7 +174,15 @@ html, body, #app { height: 100%; }
   flex: 1;
   min-height: 0;
   background: #ffe7a3;
+  touch-action: none;
 }
+
+.joy {
+  touch-action: none;
+  opacity: 0.72;
+}
+
+.joy.dragging { opacity: 1; }
 
 #arena { width: 100%; height: 100%; display: block; }
 
@@ -328,11 +307,11 @@ html, body, #app { height: 100%; }
 }
 
 .joy {
-  left: 78px;
-  bottom: 8px;
+  left: 18px;
+  bottom: 16px;
   top: auto;
-  width: 104px;
-  height: 104px;
+  width: 148px;
+  height: 148px;
   border-radius: 50%;
   border: 4px solid #2d2d2d;
   background: rgb(255 188 13 / 55%);
@@ -344,8 +323,8 @@ html, body, #app { height: 100%; }
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 46px;
-  height: 46px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   border: 3px solid #2d2d2d;
   background: #2d2d2d;
@@ -353,13 +332,13 @@ html, body, #app { height: 100%; }
 }
 
 .stage[data-layout="port"] .joy {
-  width: 86px;
-  height: 86px;
-  left: 16px;
-  bottom: 10px;
+  width: 168px;
+  height: 168px;
+  left: 10px;
+  bottom: 18px;
 }
 
-.stage[data-layout="port"] .joy span { width: 36px; height: 36px; }
+.stage[data-layout="port"] .joy span { width: 74px; height: 74px; }
 
 .stage[data-layout="port"] .slots {
   display: grid;
@@ -367,23 +346,21 @@ html, body, #app { height: 100%; }
   width: 100%;
 }
 .stage[data-layout="port"] .slot-wrap { width: auto; }
-.stage[data-layout="port"] .slot { width: 100%; height: 56px; flex-basis: auto; }
+.stage[data-layout="port"] .slot { width: 100%; height: 44px; flex-basis: auto; }
 
-.stage[data-layout="port"] .topbar { gap: 4px; padding: 8px 10px 0; }
-.stage[data-layout="port"] .round { width: 32px; height: 32px; }
-.stage[data-layout="port"] .speed { height: 32px; min-width: 36px; font-size: 13px; padding: 0 6px; }
-.stage[data-layout="port"] .hp-track { width: 64px; }
-.stage[data-layout="port"] .hp b { min-width: 0; font-size: 14px; }
-.stage[data-layout="port"] #wave { font-size: 15px; }
+.stage[data-layout="port"] .topbar { gap: 2px; padding: 6px 2px 0; }
+.stage[data-layout="port"] .topbar > * { flex-shrink: 0; }
+.stage[data-layout="port"] .topbar .spacer { flex: 1; flex-shrink: 1; min-width: 0; }
+.stage[data-layout="port"] .round { width: 40px; height: 40px; }
+.stage[data-layout="port"] .round svg { width: 18px; height: 18px; }
+.stage[data-layout="port"] .speed { height: 40px; min-width: 40px; font-size: 13px; padding: 0 6px; }
+.stage[data-layout="port"] .hp-track { width: 32px; height: 14px; }
+.stage[data-layout="port"] .gold { font-size: 12px; }
+.stage[data-layout="port"] .hp b { min-width: 0; font-size: 12px; }
+.stage[data-layout="port"] #wave { font-size: 13px; }
 
 .dock {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 14px 12px;
-  background: #fff;
-  border-top: 3px solid #2d2d2d;
-  z-index: 3;
+  display: none;
 }
 
 .slot {
@@ -559,22 +536,55 @@ html, body, #app { height: 100%; }
 
 .goods {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
   gap: 10px;
 }
 
-.stage[data-layout="port"] .goods { grid-template-columns: repeat(2, 1fr); }
-.stage[data-layout="port"] .product img { height: 56px; }
+.stage[data-layout="port"] .goods { grid-template-columns: 1fr; gap: 8px; }
 
 .product {
+  display: flex;
+  flex-direction: column;
   border: 3px solid #2d2d2d;
   border-radius: 16px;
   padding: 6px 6px 8px;
   text-align: center;
   background: #fff;
+  min-width: 0;
 }
 
 .product img { width: 100%; height: 72px; object-fit: contain; }
+
+.stage[data-layout="port"] .shop-note { display: none; }
+
+.stage[data-layout="port"] .product {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-areas: "img copy" "img buy";
+  text-align: left;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 8px;
+}
+
+.stage[data-layout="port"] .product img {
+  grid-area: img;
+  width: 56px;
+  height: 56px;
+}
+
+.stage[data-layout="port"] .product-copy { grid-area: copy; min-width: 0; }
+.stage[data-layout="port"] .product-buy {
+  grid-area: buy;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stage[data-layout="port"] .product p { max-height: none; font-size: 12px; }
+.stage[data-layout="port"] .product .price { margin: 0; font-size: 16px; }
+.stage[data-layout="port"] .product .btn { width: auto; min-height: 40px; margin: 0; padding: 4px 12px; }
 
 .meal-grid {
   display: grid;
@@ -584,7 +594,48 @@ html, body, #app { height: 100%; }
   min-height: 0;
 }
 
-.stage[data-layout="port"] .meal-grid { grid-template-columns: 1fr; }
+.meal-hold { display: none; margin: 0 0 6px; text-align: center; font-size: 13px; }
+
+.stage[data-layout="port"] #modal:has(.meals) { height: auto; }
+.stage[data-layout="port"] .meals { height: auto; overflow: visible; }
+.stage[data-layout="port"] .meal-hold { display: block; }
+.stage[data-layout="port"] .meals h2 { font-size: 22px; margin-bottom: 4px; }
+
+.stage[data-layout="port"] .meal-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  flex: none;
+  overflow: visible;
+}
+
+.stage[data-layout="port"] .meal-card {
+  height: auto;
+  overflow: visible;
+  padding: 6px 8px;
+}
+
+.stage[data-layout="port"] .meal-card header { margin-bottom: 4px; }
+.stage[data-layout="port"] .meal-photo { width: 44px; height: 34px; }
+
+.stage[data-layout="port"] .meal-items {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 6px;
+}
+
+.stage[data-layout="port"] .meal-items div { display: none; }
+
+.stage[data-layout="port"] .meal-items img {
+  width: 52px;
+  height: 52px;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.stage[data-layout="port"] .meal-card .btn { margin-top: 0; min-height: 40px; }
 
 .meal-card {
   display: flex;
@@ -662,7 +713,36 @@ html, body, #app { height: 100%; }
   line-height: 1.35;
 }
 
-.meal-card .btn { width: 100%; margin-top: auto; min-height: 34px; padding: 4px 8px; }
+.meal-card .btn { width: 100%; margin-top: auto; min-height: 40px; padding: 4px 8px; }
+
+.hold-tip {
+  position: fixed;
+  z-index: 50;
+  width: min(240px, calc(100vw - 16px));
+  padding: 8px 10px;
+  background: #fff;
+  color: #2d2d2d;
+  border: 3px solid #2d2d2d;
+  border-radius: 14px;
+  box-shadow: 0 6px 0 rgb(45 45 45 / 12%);
+  pointer-events: none;
+}
+
+.hold-tip[hidden] { display: none; }
+.hold-tip b { display: block; font-size: 14px; line-height: 1.2; }
+.hold-tip em {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 2px solid #2d2d2d;
+  background: #fff8e8;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+.hold-tip p { margin: 4px 0 0; font-size: 13px; line-height: 1.35; }
 
 .product strong { display: block; font-size: 15px; }
 
@@ -678,25 +758,57 @@ html, body, #app { height: 100%; }
 
 .product .btn { width: 100%; margin-top: 4px; min-height: 36px; }
 
+.shop-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+#modal:has(.shop-sheet) {
+  height: 100%;
+  max-height: 100%;
+}
+
+.shop-body {
+  min-height: 0;
+  overflow: auto;
+}
+
 .shop-actions {
-  position: sticky;
-  bottom: 0;
+  position: static;
+  flex: none;
+  z-index: 2;
   display: flex;
   justify-content: center;
-  gap: 10px;
-  margin: 8px 0 0;
-  padding: 8px 0;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 0 0;
   background: #fff;
 }
 
+.shop-actions .btn { flex: 1; min-width: 0; }
+
 .shop-slots {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 6px;
+  margin-top: 10px;
 }
 
-.shop-slots .slot { width: 58px; height: 58px; flex-basis: 58px; border-radius: 12px; }
-.stage[data-layout="port"] .shop-slots .slot { width: 34px; height: 34px; flex-basis: 34px; }
+.shop-slots .slot { width: 100%; height: 52px; flex-basis: auto; border-radius: 12px; }
+.stage[data-layout="port"] .shop-slots { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stage[data-layout="port"] .shop-slots .slot { height: 56px; }
+
+.stage[data-layout="port"] .relic {
+  grid-template-columns: 44px minmax(0, 1fr);
+}
+.stage[data-layout="port"] .relic .btn {
+  grid-column: 1 / -1;
+  width: 100%;
+}
 
 .shop-slots small {
   display: block;
@@ -848,24 +960,31 @@ html, body, #app { height: 100%; }
 
 .settings .btn { width: 100%; margin-top: 6px; }
 
-.pause {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
+.pause-sheet {
+  width: min(640px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 12px;
 }
 
-.pause .go {
-  width: min(240px, 70%);
-  min-height: 64px;
-  font-size: 28px;
-  font-family: Fredoka, "Noto Sans SC", sans-serif;
+.pause-sheet h2 { text-align: center; }
+
+.pause-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; position: sticky; bottom: 0; background: #fff; padding-top: 8px; }
+.pause-row .btn { flex: 1 1 96px; min-height: 42px; min-width: 0; }
+
+.stage[data-layout="port"] .pause-sheet .slot { height: 52px; }
+
+.bag-slots, .pending-slots {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin: 8px 0;
 }
 
-.pause-row { display: flex; gap: 12px; }
+.stage[data-layout="land"] .bag-slots { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+
+.bag .btn.gold { width: 100%; margin-top: 8px; }
 
 .stage[data-layout="port"] .skill { grid-template-columns: 96px 1fr; }
 .stage[data-layout="port"] .skill .photo { width: 96px; height: 84px; }
@@ -882,8 +1001,8 @@ html, body, #app { height: 100%; }
   .dock { padding: 4px 8px 6px; }
   .slot, .slot-wrap { width: 46px; }
   .slot { height: 46px; flex-basis: 46px; }
-  .joy { width: 84px; height: 84px; bottom: 8px; }
-  .joy span { width: 36px; height: 36px; }
+  .joy { width: 120px; height: 120px; bottom: 8px; }
+  .joy span { width: 52px; height: 52px; }
   .shade { padding: 4px; }
   .meal-photo { width: 36px; height: 28px; }
   .meal-card header { margin-bottom: 2px; }
@@ -900,5 +1019,8 @@ html, body, #app { height: 100%; }
   .relic-open { min-height: 36px; min-width: 58px; font-size: 13px; }
   .sheet { padding: 8px; }
   .sheet h2 { font-size: 20px; margin-bottom: 4px; }
+  .goods { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .shop-note { display: none; }
+  .product img { height: 44px; }
+  .product .btn { min-height: 32px; }
 }
-.stage[data-layout="port"] .round { width: 36px; height: 36px; }

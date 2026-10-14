@@ -212,6 +212,8 @@ export class Battle {
   private stickOn = false;
   private px = 280;
   private py = 340;
+  private camX = W / 2;
+  private camY = H / 2;
   private face = 0;
   private shotCd = 0.8;
   private hurtCd = 0;
@@ -644,12 +646,13 @@ export class Battle {
     }
     const mag = Math.hypot(x, y);
     if (mag > 0) {
+      const stickScale = keyboard ? 1 : Math.min(1, mag);
       x /= mag;
       y /= mag;
       this.face = Math.atan2(y, x);
       const cola = this.slot("cola");
       const lemon = this.slot("lemon");
-      const pace = 200 * (cola && this.hp < this.maxHp * 0.5 ? 1 + 0.18 * cola.rank : 1) * (lemon ? 1 + 0.1 * lemon.rank : 1);
+      const pace = 200 * stickScale * (cola && this.hp < this.maxHp * 0.5 ? 1 + 0.18 * cola.rank : 1) * (lemon ? 1 + 0.1 * lemon.rank : 1);
       const next = this.collide(this.px + x * pace * dt, this.py + y * pace * dt, 16);
       this.px = next.x;
       this.py = next.y;
@@ -2007,17 +2010,98 @@ export class Battle {
     return this.blocks.some((block) => circleHits(x, y, r, block));
   }
 
+  private frame() {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) {
+      return { rect, scale: 1, viewW: W, viewH: H, follow: false };
+    }
+    const follow = rect.width < 900 || rect.height > rect.width * 1.05;
+    if (!follow) {
+      const scale = Math.min(rect.width / W, rect.height / H);
+      return { rect, scale, viewW: W, viewH: H, follow: false };
+    }
+    const aspect = rect.width / Math.max(rect.height, 1);
+    let viewH = H;
+    let viewW = Math.min(W, viewH * aspect);
+    if (viewW >= W - 1) {
+      viewW = W;
+      viewH = Math.min(H, viewW / Math.max(aspect, 0.01));
+    } else if (aspect < 1) {
+      viewW = Math.min(W * 0.48, viewW * 1.32);
+      viewH = H;
+    }
+    const scale = Math.min(rect.width / viewW, rect.height / viewH);
+    return { rect, scale, viewW, viewH, follow: true };
+  }
+
+  private aimCamera(viewW: number, viewH: number, follow: boolean) {
+    if (!follow) {
+      this.camX = W / 2;
+      this.camY = H / 2;
+      return;
+    }
+    const tx = Math.max(viewW / 2, Math.min(W - viewW / 2, this.px));
+    const ty = Math.max(viewH / 2, Math.min(H - viewH / 2, this.py));
+    this.camX += (tx - this.camX) * 0.18;
+    this.camY += (ty - this.camY) * 0.18;
+  }
+
+  private drawMini(rect: DOMRect, viewW: number, viewH: number) {
+    const ctx = this.ctx;
+    const mw = Math.min(128, Math.max(96, rect.width * 0.34));
+    const mh = mw * (H / W);
+    const x = rect.width - mw - 8;
+    const y = 8;
+    const sx = mw / W;
+    const sy = mh / H;
+    ctx.save();
+    roundRect(ctx, x - 4, y - 4, mw + 8, mh + 8, 10, "#fff7d6");
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, mw, mh);
+    ctx.clip();
+    ctx.translate(x, y);
+    ctx.fillStyle = "#ffe7a3";
+    ctx.fillRect(0, 0, mw, mh);
+    ctx.fillStyle = "#c4a574";
+    for (const block of this.blocks) ctx.fillRect(block.x * sx, block.y * sy, Math.max(2, block.w * sx), Math.max(2, block.h * sy));
+    for (const enemy of this.enemies) {
+      ctx.fillStyle = enemy.kind === "boss" ? "#ff7a18" : "#db0007";
+      ctx.beginPath();
+      ctx.arc(enemy.x * sx, enemy.y * sy, enemy.kind === "boss" ? 4 : enemy.elite ? 3 : 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const left = this.camX - viewW / 2;
+    const top = this.camY - viewH / 2;
+    ctx.strokeStyle = "#2d2d2d";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(left * sx, top * sy, viewW * sx, viewH * sy);
+    ctx.fillStyle = "#fff";
+    ctx.strokeStyle = "#2d2d2d";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(this.px * sx, this.py * sy, 3.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    ctx.restore();
+  }
+
   private draw() {
     const ctx = this.ctx;
-    const rect = this.canvas.getBoundingClientRect();
-    const scale = Math.min(rect.width / W, rect.height / H);
+    const frame = this.frame();
+    if (frame.rect.width < 2 || frame.rect.height < 2) return;
+    this.aimCamera(frame.viewW, frame.viewH, frame.follow);
+    const { rect, scale } = frame;
     ctx.setTransform(this.canvas.width / rect.width, 0, 0, this.canvas.height / rect.height, 0, 0);
     ctx.clearRect(0, 0, rect.width, rect.height);
-    const ox = (rect.width - W * scale) / 2 + (this.shake > 0 ? (Math.random() - 0.5) * 6 : 0);
-    const oy = (rect.height - H * scale) / 2;
+    const shake = this.shake > 0 ? (Math.random() - 0.5) * 6 : 0;
+    const ox = (rect.width - frame.viewW * scale) / 2 + shake;
+    const oy = (rect.height - frame.viewH * scale) / 2;
     ctx.save();
     ctx.translate(ox, oy);
     ctx.scale(scale, scale);
+    ctx.translate(-(this.camX - frame.viewW / 2), -(this.camY - frame.viewH / 2));
     const map = this.currentMap();
     const background = this.images.get(map.background);
     if (background?.complete && background.naturalWidth > 0) {
@@ -2028,7 +2112,7 @@ export class Battle {
     }
     for (const item of map.obstacles) {
       const sprite = this.images.get(item.file);
-      if (sprite?.complete && sprite.naturalWidth > 0) ctx.drawImage(sprite, item.x - 4, item.y - 4);
+      if (sprite?.complete && sprite.naturalWidth > 0) ctx.drawImage(sprite, item.x - 4, item.y - 4, item.w + 8, item.h + 8);
     }
     for (const zone of this.zones) this.drawZone(zone);
     for (const bomb of this.bombs) {
@@ -2062,6 +2146,7 @@ export class Battle {
       ctx.fillText(floater.text, floater.x, floater.y - (0.7 - floater.life) * 28);
     }
     ctx.restore();
+    if (frame.follow) this.drawMini(rect, frame.viewW, frame.viewH);
   }
 
   private carriedImage() {
