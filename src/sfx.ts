@@ -73,36 +73,41 @@ export class Sfx {
 }
 
 type Mood = "street" | "rush" | "heat";
+type Drum = 0 | "k" | "h" | "kh";
 
 type Track = {
   step: number;
-  leadHold: number;
+  leadType: OscillatorType;
+  leadGain: number;
   bass: Array<number | 0>;
   lead: Array<number | 0>;
-  tickEvery: number;
+  drum: Drum[];
 };
 
 const tracks: Record<Mood, Track> = {
   street: {
-    step: 0.19,
-    leadHold: 0.8,
-    tickEvery: 2,
-    bass: [131, 0, 131, 0, 131, 0, 196, 0, 175, 0, 175, 0, 196, 0, 131, 0],
-    lead: [523, 659, 784, 659, 880, 784, 659, 587, 523, 659, 784, 1047, 880, 784, 659, 523],
+    step: 0.27,
+    leadType: "sine",
+    leadGain: 0.034,
+    bass: [131, 0, 0, 98, 175, 0, 0, 131, 196, 0, 0, 147, 131, 0, 98, 0],
+    lead: [523, 0, 659, 0, 784, 659, 0, 587, 0, 523, 0, 440, 392, 0, 440, 0],
+    drum: ["k", 0, "h", 0, "k", 0, "h", 0, "k", 0, "h", 0, "k", 0, "h", 0],
   },
   rush: {
-    step: 0.16,
-    leadHold: 0.62,
-    tickEvery: 1,
-    bass: [110, 0, 110, 165, 110, 0, 82, 165, 87, 0, 87, 131, 82, 0, 110, 165],
-    lead: [440, 523, 659, 880, 784, 659, 523, 587, 659, 784, 880, 1047, 988, 880, 784, 659],
+    step: 0.2,
+    leadType: "triangle",
+    leadGain: 0.03,
+    bass: [147, 0, 175, 196, 220, 0, 196, 175, 165, 0, 147, 131, 147, 0, 110, 131],
+    lead: [0, 587, 0, 698, 0, 0, 659, 587, 0, 523, 0, 587, 698, 0, 784, 0],
+    drum: ["k", "h", 0, "h", "kh", "h", "k", "h", "k", "h", 0, "kh", "k", "h", "h", 0],
   },
   heat: {
-    step: 0.135,
-    leadHold: 0.5,
-    tickEvery: 1,
-    bass: [82, 123, 82, 165, 98, 147, 82, 123, 82, 123, 110, 165, 98, 147, 82, 123],
-    lead: [659, 784, 988, 1319, 1175, 988, 784, 880, 659, 880, 1175, 1319, 1047, 988, 880, 784],
+    step: 0.16,
+    leadType: "triangle",
+    leadGain: 0.026,
+    bass: [110, 110, 0, 110, 82, 0, 110, 0, 98, 0, 110, 0, 87, 110, 0, 82],
+    lead: [440, 0, 523, 494, 440, 392, 0, 349, 440, 523, 0, 659, 523, 0, 494, 440],
+    drum: ["kh", "h", "h", "k", "kh", "h", "h", "k", "kh", "h", "k", "h", "kh", "h", "h", "k"],
   },
 };
 
@@ -117,7 +122,10 @@ export class Bgm {
   }
 
   setCourse(wave: number) {
-    this.mood = wave >= 10 ? "heat" : wave >= 5 ? "rush" : "street";
+    const mood: Mood = wave >= 10 ? "heat" : wave >= 5 ? "rush" : "street";
+    if (mood === this.mood) return;
+    this.mood = mood;
+    this.step = 0;
   }
 
   ensure() {
@@ -137,28 +145,39 @@ export class Bgm {
     const audio = context();
     const track = tracks[this.mood];
     while (this.next < audio.currentTime + 0.22) {
-      const beat = this.step % 16;
+      const beat = this.step % track.lead.length;
       const bass = track.bass[beat];
-      if (bass) this.note(bass, this.next, track.step * 1.35, 0.03, "sine");
+      if (bass) this.note(bass, this.next, track.step * 1.6, 0.028, "sine");
       const lead = track.lead[beat];
-      if (lead) this.note(lead, this.next, track.step * track.leadHold, 0.042, "triangle");
-      if (beat % track.tickEvery === 0) this.note(beat % 4 === 0 ? 1760 : 1400, this.next, 0.028, beat % 4 === 0 ? 0.014 : 0.008, "square");
+      if (lead) this.note(lead, this.next, track.step * 0.9, track.leadGain, track.leadType);
+      const drum = track.drum[beat];
+      if (drum === "k" || drum === "kh") this.kick(this.next);
+      if (drum === "h" || drum === "kh") this.hat(this.next);
       this.step += 1;
       this.next += track.step;
     }
   }
 
-  private note(freq: number, when: number, duration: number, volume: number, type: OscillatorType) {
+  private note(freq: number, when: number, duration: number, volume: number, type: OscillatorType, downTo = 0) {
     const audio = context();
     const osc = audio.createOscillator();
     const amp = audio.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, when);
+    if (downTo > 0) osc.frequency.exponentialRampToValueAtTime(downTo, when + duration);
     amp.gain.setValueAtTime(volume, when);
-    amp.gain.exponentialRampToValueAtTime(0.001, when + duration);
+    amp.gain.exponentialRampToValueAtTime(0.001, when + Math.max(0.03, duration));
     osc.connect(amp);
     amp.connect(audio.destination);
     osc.start(when);
     osc.stop(when + duration + 0.02);
+  }
+
+  private kick(when: number) {
+    this.note(150, when, 0.09, 0.05, "sine", 52);
+  }
+
+  private hat(when: number) {
+    this.note(1700, when, 0.02, 0.006, "square");
   }
 }
