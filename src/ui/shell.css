@@ -133,6 +133,20 @@ html, body, #app { height: 100%; }
 
 .round svg { width: 20px; height: 20px; }
 
+.speed {
+  min-width: 44px;
+  height: 40px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 3px solid #2d2d2d;
+  background: #fff;
+  font-family: Fredoka, "Noto Sans SC", sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.speed.fast { background: #ffbc0d; }
+
 .hp, .gold {
   display: flex;
   align-items: center;
@@ -357,6 +371,7 @@ html, body, #app { height: 100%; }
 
 .stage[data-layout="port"] .topbar { gap: 4px; padding: 8px 10px 0; }
 .stage[data-layout="port"] .round { width: 32px; height: 32px; }
+.stage[data-layout="port"] .speed { height: 32px; min-width: 36px; font-size: 13px; padding: 0 6px; }
 .stage[data-layout="port"] .hp-track { width: 64px; }
 .stage[data-layout="port"] .hp b { min-width: 0; font-size: 14px; }
 .stage[data-layout="port"] #wave { font-size: 15px; }
@@ -489,7 +504,11 @@ html, body, #app { height: 100%; }
 .tag.spell { background: #ffbc0d; color: #000; }
 .tag.tank { background: #2d2d2d; color: #fff; }
 .tag.cast { background: #fff; color: #2d2d2d; }
+.tag.ring { background: #ffbc0d; color: #2d2d2d; }
 .tag.talent { background: #2d2d2d; color: #fff; }
+.tabs button[aria-pressed="true"].cast { background: #db0007; color: #fff; }
+.tabs button[aria-pressed="true"].ring { background: #ffbc0d; color: #2d2d2d; }
+.tabs button[aria-pressed="true"].talent { background: #2d2d2d; color: #fff; }
 .kind-head { margin: 14px 0 6px; font-size: 16px; }
 
 .price {
@@ -525,7 +544,18 @@ html, body, #app { height: 100%; }
   padding: 12px;
 }
 
-.sheet h2 { text-align: center; margin-bottom: 6px; font-size: 24px; }
+.meals {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+#modal:has(.meals) {
+  height: 100%;
+  align-items: stretch;
+}
 
 .goods {
   display: grid;
@@ -550,6 +580,8 @@ html, body, #app { height: 100%; }
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  flex: 1;
+  min-height: 0;
 }
 
 .stage[data-layout="port"] .meal-grid { grid-template-columns: 1fr; }
@@ -557,55 +589,80 @@ html, body, #app { height: 100%; }
 .meal-card {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   border: 3px solid #ffbc0d;
   border-radius: 16px;
   padding: 8px;
   background: #fff8e8;
-  text-align: center;
-}
-
-.meal-photo { width: 100%; height: 78px; object-fit: contain; }
-
-.meal-card .price { font-size: 22px; }
-
-.meal-card .quote { margin-top: 2px; }
-
-.contains {
-  margin: 8px 0 0;
-  font-size: 13px;
-  font-weight: 700;
   text-align: left;
 }
 
+.meal-card header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.meal-photo { width: 52px; height: 40px; object-fit: contain; flex: none; }
+
+.meal-card strong { display: block; font-size: 15px; line-height: 1.2; }
+
+.meal-card .price { font-size: 16px; }
+
 .meal-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   list-style: none;
-  margin: 4px 0 8px;
+  margin: 6px 0;
   padding: 0;
   text-align: left;
 }
 
 .meal-items li {
   display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 6px;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
 }
 
 .meal-items img {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
   flex: none;
   background: #fff;
   border: 2px solid #2d2d2d;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
-.meal-items b { display: block; font-size: 14px; }
+.meal-items div { min-width: 0; }
 
-.meal-items p { margin: 0; font-size: 13px; line-height: 1.35; }
+.meal-items b { display: block; font-size: 13px; line-height: 1.2; }
 
-.meal-card .btn { width: 100%; margin-top: auto; }
+.meal-items em {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid #2d2d2d;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.meal-items p {
+  display: block;
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.meal-card .btn { width: 100%; margin-top: auto; min-height: 34px; padding: 4px 8px; }
 
 .product strong { display: block; font-size: 15px; }
 
@@ -648,6 +705,37 @@ html, body, #app { height: 100%; }
   font-size: 12px;
   line-height: 1.2;
 }
+
+.dock .slots { width: auto; flex: 1; }
+
+.relic-open {
+  flex: none;
+  min-width: 72px;
+  min-height: 48px;
+  border-radius: 14px;
+  border: 3px solid #2d2d2d;
+  background: #2d2d2d;
+  color: #fff;
+  font-weight: 700;
+}
+
+.relic-shop { margin-top: 10px; }
+.relic-shop h3 { margin: 0 0 6px; font-size: 16px; }
+
+.relic-list { display: flex; flex-direction: column; gap: 8px; }
+
+.relic {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+  border-top: 2px solid #f3f3f3;
+}
+
+.relic img { width: 52px; height: 44px; object-fit: contain; }
+.relic p { margin: 0; font-size: 13px; line-height: 1.3; }
+.relic .btn { min-height: 36px; }
 
 .stage[data-screen="shop"] .dock,
 .stage[data-screen="meal"] .dock { visibility: hidden; }
@@ -796,14 +884,20 @@ html, body, #app { height: 100%; }
   .slot { height: 46px; flex-basis: 46px; }
   .joy { width: 84px; height: 84px; bottom: 8px; }
   .joy span { width: 36px; height: 36px; }
-  .meal-photo { height: 36px; }
-  .meal-items { display: flex; gap: 8px; margin: 4px 0; }
-  .meal-items li { margin-top: 0; }
-  .meal-items img { width: 32px; height: 32px; }
-  .meal-items p, .meal-card .quote, .meals > .quote, .contains { display: none; }
-  .meal-card { padding: 6px; }
-  .meal-card .price { font-size: 18px; }
-  .meal-card .btn { min-height: 36px; }
+  .shade { padding: 4px; }
+  .meal-photo { width: 36px; height: 28px; }
+  .meal-card header { margin-bottom: 2px; }
+  .meal-items { gap: 2px; margin: 2px 0 4px; }
+  .meal-items p { font-size: 11px; line-height: 1.25; }
+  .meal-items img { width: 24px; height: 24px; }
+  .meal-items b { font-size: 12px; }
+  .meal-card { padding: 4px 6px; }
+  .meal-card strong { font-size: 13px; }
+  .meal-card .price { font-size: 14px; }
+  .meal-card .btn { min-height: 28px; padding: 2px 8px; font-size: 13px; }
+  .meals h2, .sheet h2 { font-size: 16px; margin: 0 0 4px; }
+  .sheet.meals, .meals { padding: 6px 8px; }
+  .relic-open { min-height: 36px; min-width: 58px; font-size: 13px; }
   .sheet { padding: 8px; }
   .sheet h2 { font-size: 20px; margin-bottom: 4px; }
 }

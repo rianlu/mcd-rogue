@@ -72,22 +72,58 @@ export class Sfx {
   }
 }
 
-const bass = [174.61, 174.61, 220, 196, 174.61, 146.83, 196, 220];
-const lead = [349.23, 392, 440, 392, 349.23, 329.63, 293.66, 329.63, 392, 440, 493.88, 440, 392, 349.23, 329.63, 293.66];
+type Mood = "street" | "rush" | "heat";
+
+type Track = {
+  step: number;
+  leadHold: number;
+  bass: Array<number | 0>;
+  lead: Array<number | 0>;
+  tickEvery: number;
+};
+
+const tracks: Record<Mood, Track> = {
+  street: {
+    step: 0.19,
+    leadHold: 0.8,
+    tickEvery: 2,
+    bass: [131, 0, 131, 0, 131, 0, 196, 0, 175, 0, 175, 0, 196, 0, 131, 0],
+    lead: [523, 659, 784, 659, 880, 784, 659, 587, 523, 659, 784, 1047, 880, 784, 659, 523],
+  },
+  rush: {
+    step: 0.16,
+    leadHold: 0.62,
+    tickEvery: 1,
+    bass: [110, 0, 110, 165, 110, 0, 82, 165, 87, 0, 87, 131, 82, 0, 110, 165],
+    lead: [440, 523, 659, 880, 784, 659, 523, 587, 659, 784, 880, 1047, 988, 880, 784, 659],
+  },
+  heat: {
+    step: 0.135,
+    leadHold: 0.5,
+    tickEvery: 1,
+    bass: [82, 123, 82, 165, 98, 147, 82, 123, 82, 123, 110, 165, 98, 147, 82, 123],
+    lead: [659, 784, 988, 1319, 1175, 988, 784, 880, 659, 880, 1175, 1319, 1047, 988, 880, 784],
+  },
+};
 
 export class Bgm {
   private timer = 0;
   private next = 0;
   private step = 0;
+  private mood: Mood = "street";
 
   unlock() {
     if (unlockAudio()) this.ensure();
   }
 
+  setCourse(wave: number) {
+    this.mood = wave >= 10 ? "heat" : wave >= 5 ? "rush" : "street";
+  }
+
   ensure() {
     if (!prefs.bgm || !unlocked || this.timer) return;
     this.next = context().currentTime + 0.08;
-    this.timer = window.setInterval(() => this.pump(), 80);
+    this.timer = window.setInterval(() => this.pump(), 60);
   }
 
   stop() {
@@ -99,13 +135,16 @@ export class Bgm {
   private pump() {
     if (!prefs.bgm || !unlocked) return;
     const audio = context();
-    while (this.next < audio.currentTime + 0.35) {
+    const track = tracks[this.mood];
+    while (this.next < audio.currentTime + 0.22) {
       const beat = this.step % 16;
-      this.note(bass[beat % bass.length] / 2, this.next, 0.5, 0.03, "sine");
-      if (beat % 2 === 0) this.note(lead[beat], this.next, 0.34, 0.045, "triangle");
-      if (beat % 4 === 0) this.note(lead[beat] / 2, this.next, 0.5, 0.02, "sine");
+      const bass = track.bass[beat];
+      if (bass) this.note(bass, this.next, track.step * 1.35, 0.03, "sine");
+      const lead = track.lead[beat];
+      if (lead) this.note(lead, this.next, track.step * track.leadHold, 0.042, "triangle");
+      if (beat % track.tickEvery === 0) this.note(beat % 4 === 0 ? 1760 : 1400, this.next, 0.028, beat % 4 === 0 ? 0.014 : 0.008, "square");
       this.step += 1;
-      this.next += beat % 2 === 0 ? 0.34 : 0.22;
+      this.next += track.step;
     }
   }
 

@@ -1,14 +1,14 @@
 import { Bgm, unlockAudio } from "../sfx";
 import { prefs, savePrefs } from "../settings";
 import { Battle, type SlotState } from "../game/battle";
-import { combos, recyclePrice, schoolLabel, skillById, type School, type SkillId } from "../game/content";
+import { comboById, kindLabel, recyclePrice, skillById, skills, type ComboId, type SkillId, type SkillKind } from "../game/content";
 
-type Modal = "none" | "meal" | "shop" | "skill" | "branch" | "manual" | "settings" | "pause" | "pending" | "dead";
+type Modal = "none" | "meal" | "shop" | "skill" | "branch" | "manual" | "settings" | "pause" | "pending" | "dead" | "relics";
 
 const bgm = new Bgm();
 let battle: Battle;
 let modal: Modal = "none";
-let tab: School = "orb";
+let tab: "技能" | "神器" = "技能";
 let inspect = 0;
 let branchId: SkillId | null = null;
 let layout: "land" | "port" = "land";
@@ -32,19 +32,19 @@ function icon(name: "gear" | "book" | "pause" | "heart") {
   return `<svg ${common}><path d="M4 8h16M4 16h16" fill="none" stroke="#2d2d2d" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="8" r="2.4" fill="#fff" stroke="#2d2d2d" stroke-width="2"/><circle cx="15" cy="16" r="2.4" fill="#fff" stroke="#2d2d2d" stroke-width="2"/></svg>`;
 }
 
-function tag(school: School, text: string) {
-  return `<span class="tag ${school}">${text}</span>`;
-}
-
-function kindTag(kind: "主动" | "被动") {
-  return kind === "主动" ? `<span class="tag cast">技能</span>` : `<span class="tag talent">天赋</span>`;
+function kindTag(kind: SkillKind) {
+  const tone = kind === "技能" ? "cast" : kind === "增益" ? "ring" : "talent";
+  return `<span class="tag ${tone}">${kindLabel[kind]}</span>`;
 }
 
 function slotButton(slot: SlotState | null, index: number, recycle: boolean) {
-  if (!slot) return `<div class="slot-wrap"><div class="slot empty"></div>${recycle ? "<small> </small>" : ""}</div>`;
+  if (!slot) return `<div class="slot-wrap"><div class="slot empty"></div><small> </small></div>`;
   const skill = skillById[slot.id];
-  const mark = skill.kind === "被动" ? `<i class="mark">${slot.rank}</i>` : slot.branch ? `<i class="mark">支</i>` : "";
-  return `<div class="slot-wrap"><button class="slot" type="button" data-slot="${index}" aria-label="${skill.name}">${mark}<img src="${skill.image}" alt=""></button>${recycle ? `<small>回收 ${recyclePrice(skill.price, slot.rank, Boolean(slot.branch))}</small>` : ""}</div>`;
+  const balls = skill.id === "orbit" || skill.id === "orbDmg";
+  const mark = skill.kind === "技能" ? `<i class="mark">${slot.branch ? "强" : "技"}</i>` : `<i class="mark">${slot.rank}</i>`;
+  const hint = skill.kind === "技能" ? "技能，战斗里捡到放一次" : skill.kind === "增益" ? "增益，买下后一直在身上" : "神器，买下后一直生效";
+  const caption = balls ? `增益 ${slot.rank}` : kindLabel[skill.kind];
+  return `<div class="slot-wrap"><button class="slot" type="button" data-slot="${index}" aria-label="${skill.name}" title="${skill.name}，${hint}">${mark}<img src="${skill.image}" alt=""></button>${recycle ? `<small>回收 ${recyclePrice(skill.price, slot.rank, Boolean(slot.branch))}</small>` : `<small>${caption}</small>`}</div>`;
 }
 
 function paintSlots(recycle: boolean) {
@@ -67,6 +67,9 @@ function paintStats() {
   if (fill) fill.style.width = `${Math.max(0, (hud.hp / hud.maxHp) * 100)}%`;
   if (gold) gold.textContent = money(hud.gold);
   if (wave) wave.textContent = hud.banner;
+  bgm.setCourse(hud.wave);
+  const relicNum = root.querySelector<HTMLElement>("#relic-num");
+  if (relicNum) relicNum.textContent = String(hud.relics.length);
   root.querySelector(".stage")?.setAttribute("data-scene", String(hud.scene));
 }
 
@@ -79,7 +82,7 @@ function openModal(next: Modal) {
   if (!stage || !shade || !panel) return;
   stage.dataset.screen = next === "none" ? "battle" : next === "pending" || next === "dead" ? next : next;
   shade.hidden = next === "none";
-  panel.innerHTML = next === "meal" ? mealHtml() : next === "shop" ? shopHtml() : next === "skill" ? skillHtml() : next === "branch" ? branchHtml() : next === "manual" ? manualHtml() : next === "settings" ? settingsHtml() : next === "pause" ? pauseHtml() : next === "pending" ? pendingHtml() : next === "dead" ? deadHtml() : "";
+  panel.innerHTML = next === "meal" ? mealHtml() : next === "shop" ? shopHtml() : next === "skill" ? skillHtml() : next === "branch" ? branchHtml() : next === "manual" ? manualHtml() : next === "settings" ? settingsHtml() : next === "pause" ? pauseHtml() : next === "pending" ? pendingHtml() : next === "dead" ? deadHtml() : next === "relics" ? relicsHtml() : "";
   if (next === "shop") paintSlots(true);
 }
 
@@ -95,26 +98,26 @@ function closeModal() {
 }
 
 function mealHtml() {
-  const cards = combos
+  const cards = battle.meals
+    .map((id) => comboById[id])
     .map((combo) => {
       const items = combo.grants
         .map((id) => {
           const skill = skillById[id];
-          return `<li><img src="${skill.image}" alt=""><div><b>${skill.name}</b><p>${skill.effect}</p></div></li>`;
+          return `<li><img src="${skill.image}" alt=""><div><b>${skill.name}</b><em>${kindLabel[skill.kind]}</em><p>${skill.effect}</p></div></li>`;
         })
         .join("");
       return `<article class="meal-card">
-        <img class="meal-photo" src="${combo.image}" alt="">
-        <strong>${combo.name}</strong>
-        <p class="price">${yuan(combo.price)}</p>
-        <p class="quote">菜单价，这一局免费</p>
-        <p class="contains">包含</p>
+        <header>
+          <img class="meal-photo" src="${combo.image}" alt="">
+          <div><strong>${combo.name}</strong><p class="price">${yuan(combo.price)}</p></div>
+        </header>
         <ul class="meal-items">${items}</ul>
         <button class="btn gold" type="button" data-meal="${combo.id}">就这套</button>
       </article>`;
     })
     .join("");
-  return `<section class="panel sheet meals"><h2>选一套餐</h2><p class="quote">开局带走下面列出的两件。商店只卖单品。</p><div class="meal-grid">${cards}</div></section>`;
+  return `<section class="panel sheet meals"><h2>选一套餐</h2><div class="meal-grid">${cards}</div></section>`;
 }
 
 function shopHtml() {
@@ -122,28 +125,30 @@ function shopHtml() {
   const cards = hud.offers
     .map((id) => {
       const skill = skillById[id];
-      const owned = hud.slots.find((slot) => slot?.id === id);
-      const branch = Boolean(owned && skill.kind === "主动" && !owned.branch);
-      const upgrade = Boolean(owned && skill.kind === "被动" && owned.rank < 3);
+      const owned = hud.slots.find((slot) => slot?.id === id) ?? hud.relics.find((slot) => slot.id === id);
+      const branch = Boolean(owned && skill.kind === "技能" && !owned.branch);
+      const upgrade = Boolean(owned && skill.kind !== "技能" && owned.rank < 3);
       const afford = hud.gold >= skill.price;
-      const label = !afford ? "金币不够" : branch ? "选分支" : upgrade ? `升到 ${(owned?.rank ?? 1) + 1} 级` : owned ? "已拥有" : "购买";
+      const balls = skill.id === "orbit" || skill.id === "orbDmg";
+      const label = !afford ? "金币不够" : branch ? "选强化" : upgrade ? (balls ? "再加一颗" : `升到 ${(owned?.rank ?? 1) + 1} 级`) : owned ? "已拥有" : "购买";
       const disabled = (!branch && !upgrade && owned) || !afford;
       return `<article class="product">
         <img src="${skill.image}" alt="">
         <strong>${skill.name}</strong>
-        ${tag(skill.school, schoolLabel[skill.school])} ${kindTag(skill.kind)}
+        ${kindTag(skill.kind)}
         <p>${skill.effect}</p>
         <p class="price">${yuan(skill.price)}</p>
         <button class="btn gold" type="button" data-buy="${id}" ${disabled ? "disabled" : ""}>${afford || owned ? label : "金币不够"}</button>
       </article>`;
     })
     .join("");
-  return `<section class="panel sheet"><h2>商店</h2><div class="goods">${cards}</div>
+  return `<section class="panel sheet"><h2>商店</h2><p class="quote">技能掉在地上，捡到放一次。增益是攻速、攻击、绕身的球，买下就一直在。神器是带特殊效果的装备。</p><div class="goods">${cards}</div>
     <div class="shop-actions">
       <button class="btn white" type="button" data-refresh ${hud.refreshes >= 4 || hud.gold < hud.refreshCost ? "disabled" : ""}>${hud.refreshes >= 4 ? "不能再刷新" : hud.refreshCost === 0 ? "免费刷新" : `刷新 ${hud.refreshCost}`}</button>
       <button class="btn gold" type="button" data-continue>继续</button>
     </div>
-    <div class="shop-slots" id="shop-slots"></div></section>`;
+    <div class="shop-slots" id="shop-slots"></div>
+    <div class="relic-shop"><h3>神器</h3><div class="relic-list">${relicChips(true)}</div></div></section>`;
 }
 
 function skillHtml() {
@@ -153,7 +158,7 @@ function skillHtml() {
   const price = recyclePrice(skill.price, slot.rank, Boolean(slot.branch));
   return `<article class="panel skill">
     <img class="photo" src="${skill.image}" alt="">
-    <div class="skill-head"><h2>${skill.name}</h2>${tag(skill.school, schoolLabel[skill.school])} ${kindTag(skill.kind)}</div>
+    <div class="skill-head"><h2>${skill.name}</h2>${kindTag(skill.kind)}</div>
     <p class="effect">${skill.effect}</p>
     <p class="price">${yuan(skill.price)}</p>
     <p class="quote">成色一般，转转回收 ${price}</p>
@@ -162,29 +167,46 @@ function skillHtml() {
   </article>`;
 }
 
+function relicChips(recycle: boolean) {
+  const relics = battle.hud().relics;
+  if (!relics.length) return `<p class="quote">还没有。神器不占下面八格。</p>`;
+  return relics
+    .map((slot, index) => {
+      const skill = skillById[slot.id];
+      const price = recyclePrice(skill.price, slot.rank, false);
+      return `<article class="relic"><img src="${skill.image}" alt=""><div><strong>${skill.name}</strong> <i>${slot.rank}</i><p>${skill.effect}</p></div>${recycle ? `<button class="btn white" type="button" data-relic="${index}">回收 ${price}</button>` : ""}</article>`;
+    })
+    .join("");
+}
+
+function relicsHtml() {
+  return `<section class="panel sheet relics"><h2>神器</h2><p class="quote">不占下面八格，买下后一直生效。</p><div class="relic-list">${relicChips(true)}</div><button class="btn gold" type="button" data-close>关闭</button></section>`;
+}
+
 function branchHtml() {
   if (!branchId) return "";
   const skill = skillById[branchId];
-  return `<section class="panel branch"><h2>${skill.name}</h2><p class="quote">再付 ${yuan(skill.price)}，选一条</p><div class="pair">
+  return `<section class="panel branch"><h2>${skill.name}</h2><p class="quote">再付 ${yuan(skill.price)}，选一种强化</p><div class="pair">
     <article class="choice"><img src="${skill.image}" alt=""><strong>${skill.branchA}</strong><button class="btn gold" type="button" data-branch="a">就这个</button></article>
     <article class="choice"><img src="${skill.image}" alt=""><strong>${skill.branchB}</strong><button class="btn gold" type="button" data-branch="b">就这个</button></article>
   </div></section>`;
 }
 
-function manualGroup(kind: "主动" | "被动") {
-  const rows = Object.values(skillById)
-    .filter((skill) => skill.school === tab && skill.kind === kind)
+function manualRows(kind: SkillKind) {
+  return skills
+    .filter((skill) => skill.kind === kind)
     .map((skill) => `<article class="row"><img src="${skill.image}" alt=""><div><strong>${skill.name}</strong> ${kindTag(skill.kind)}<p>${skill.effect}</p></div></article>`)
     .join("");
-  if (!rows) return "";
-  return `<h3 class="kind-head">${kind === "主动" ? "技能" : "天赋"}</h3>${rows}`;
 }
 
 function manualHtml() {
-  const tabs = (["orb", "tank", "spell"] as const)
-    .map((school) => `<button class="${school}" type="button" data-tab="${school}" aria-pressed="${tab === school}">${schoolLabel[school]}</button>`)
+  const tabs = (["技能", "神器"] as const)
+    .map((name) => `<button class="${name === "技能" ? "cast" : "talent"}" type="button" data-tab="${name}" aria-pressed="${tab === name}">${name}</button>`)
     .join("");
-  return `<section class="panel manual"><h2>手册</h2><div class="tabs">${tabs}</div>${manualGroup("主动")}${manualGroup("被动")}<p class="quote">技能自己放。天赋一直在，最多 3 级。</p></section>`;
+  const body = tab === "技能"
+    ? manualRows("技能")
+    : `<h3 class="kind-head">增益</h3>${manualRows("增益")}<h3 class="kind-head">装备</h3>${manualRows("神器")}`;
+  return `<section class="panel manual"><h2>手册</h2><div class="tabs">${tabs}</div>${body}<p class="quote">技能掉在地上，捡到放一次。增益买下就一直在身上，绕身的球也算增益。神器是有自己效果的装备。</p></section>`;
 }
 
 function settingsHtml() {
@@ -200,12 +222,12 @@ function pendingHtml() {
   const id = battle.hud().pending;
   if (!id) return "";
   const skill = skillById[id];
-  return `<article class="panel skill"><img class="photo" src="${skill.image}" alt=""><div class="skill-head"><h2>${skill.name}</h2>${tag(skill.school, schoolLabel[skill.school])} ${kindTag(skill.kind)}</div><p class="effect">${skill.effect} 八格满了，先回收下面一格，再点装上。</p><p class="price">免费</p><p class="quote">不要的话换成 6 金币</p><button class="btn gold ok" type="button" data-take>装上</button><button class="btn white cancel" type="button" data-skip>不要</button></article>`;
+  return `<article class="panel skill"><img class="photo" src="${skill.image}" alt=""><div class="skill-head"><h2>${skill.name}</h2>${kindTag(skill.kind)}</div><p class="effect">${skill.effect} 八格满了，先回收下面一格，再点装上。</p><p class="price">免费</p><p class="quote">不要的话换成 6 金币</p><button class="btn gold ok" type="button" data-take>装上</button><button class="btn white cancel" type="button" data-skip>不要</button></article>`;
 }
 
 function deadHtml() {
   const banner = battle.hud().banner;
-  return `<section class="panel settings"><h2>倒下了</h2><p>${banner}</p><p>这一局的金币和技能会清空。</p><button class="btn gold" type="button" data-restart>再来一局</button></section>`;
+  return `<section class="panel settings"><h2>倒下了</h2><p>${banner}</p><p>这一局的金币、技能、增益和神器会清空。</p><button class="btn gold" type="button" data-restart>再来一局</button></section>`;
 }
 
 function applyLayout() {
@@ -238,6 +260,7 @@ export function mountShell(host: HTMLElement) {
         <button class="round" type="button" data-open="settings" aria-label="设置">${icon("gear")}</button>
         <button class="round" type="button" data-open="manual" aria-label="手册">${icon("book")}</button>
         <button class="round" type="button" data-open="pause" aria-label="暂停">${icon("pause")}</button>
+        <button class="speed" type="button" data-speed aria-label="倍速">1×</button>
         <strong id="wave">第 1 关</strong>
         <span class="spacer"></span>
         <div class="hp">${icon("heart")}<div class="hp-track"><div id="hp-fill" class="hp-fill"></div></div><b id="hp-num">100/100</b></div>
@@ -245,7 +268,7 @@ export function mountShell(host: HTMLElement) {
       </header>
       <div class="body">
         <div class="field"><canvas id="arena"></canvas><div class="joy" id="joy"><span id="knob"></span></div></div>
-        <footer class="dock"><div class="slots" id="slots"></div></footer>
+        <footer class="dock"><div class="slots" id="slots"></div><button class="relic-open" type="button" data-open="relics">神器 <b id="relic-num">0</b></button></footer>
         <div class="shade" id="shade" hidden><button class="backdrop" type="button" data-close aria-label="返回战斗"></button><div id="modal"></div></div>
       </div>
     </section>
@@ -308,8 +331,17 @@ export function mountShell(host: HTMLElement) {
   root.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    if (target.closest("[data-speed]")) {
+      const speed = battle.cycleSpeed();
+      const button = root.querySelector<HTMLButtonElement>("[data-speed]");
+      if (button) {
+        button.textContent = `${speed}×`;
+        button.classList.toggle("fast", speed > 1);
+      }
+      return;
+    }
     const open = target.closest<HTMLElement>("[data-open]");
-    if (open?.dataset.open === "settings" || open?.dataset.open === "manual" || open?.dataset.open === "pause") {
+    if (open?.dataset.open === "settings" || open?.dataset.open === "manual" || open?.dataset.open === "pause" || open?.dataset.open === "relics") {
       if (modal === "meal" || modal === "shop" || modal === "pending" || modal === "dead") return;
       openModal(open.dataset.open);
       return;
@@ -319,7 +351,7 @@ export function mountShell(host: HTMLElement) {
       return;
     }
     const tabButton = target.closest<HTMLElement>("[data-tab]");
-    if (tabButton?.dataset.tab === "orb" || tabButton?.dataset.tab === "tank" || tabButton?.dataset.tab === "spell") {
+    if (tabButton?.dataset.tab === "技能" || tabButton?.dataset.tab === "神器") {
       tab = tabButton.dataset.tab;
       openModal("manual");
       return;
@@ -339,6 +371,12 @@ export function mountShell(host: HTMLElement) {
       if (battle.hud().slots[inspect]) openModal("skill");
       return;
     }
+    const relic = target.closest<HTMLElement>("[data-relic]");
+    if (relic?.dataset.relic) {
+      battle.recycleRelic(Number(relic.dataset.relic));
+      openModal(modal === "shop" ? "shop" : "relics");
+      return;
+    }
     const recycle = target.closest<HTMLElement>("[data-recycle]");
     if (recycle?.dataset.recycle) {
       battle.recycle(Number(recycle.dataset.recycle));
@@ -346,8 +384,8 @@ export function mountShell(host: HTMLElement) {
       return;
     }
     const meal = target.closest<HTMLElement>("[data-meal]");
-    if (meal?.dataset.meal === "nugget-meal" || meal?.dataset.meal === "bigmac-meal" || meal?.dataset.meal === "grill-meal") {
-      if (!battle.chooseMeal(meal.dataset.meal)) return;
+    if (meal?.dataset.meal && meal.dataset.meal in comboById) {
+      if (!battle.chooseMeal(meal.dataset.meal as ComboId)) return;
       modal = "none";
       root.querySelector<HTMLElement>("#shade")!.hidden = true;
       root.querySelector(".stage")?.setAttribute("data-screen", "battle");

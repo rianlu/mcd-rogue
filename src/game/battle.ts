@@ -1,6 +1,6 @@
 import { Sfx } from "../sfx";
 import { prefs } from "../settings";
-import { comboById, recyclePrice, skillById, skills, type ComboId, type SkillId } from "./content";
+import { comboById, pickCombos, recyclePrice, skillById, skills, type ComboId, type SkillId } from "./content";
 import mapLayout from "./map-layout.json";
 
 type MapObstacle = { file: string; x: number; y: number; w: number; h: number };
@@ -17,6 +17,7 @@ export type Hud = {
   wave: number;
   scene: 1 | 2;
   slots: Array<SlotState | null>;
+  relics: SlotState[];
   offers: SkillId[];
   refreshes: number;
   refreshCost: number;
@@ -45,6 +46,18 @@ type Enemy = {
   dashLeft: number;
   dashAngle: number;
   pace: number;
+  steer: number;
+  root: number;
+  burn: number;
+  burnDmg: number;
+  burnTick: number;
+  mark: number;
+  haul: number;
+  hx: number;
+  hy: number;
+  hasWay: boolean;
+  wayX: number;
+  wayY: number;
 };
 type Shot = {
   x: number;
@@ -63,12 +76,17 @@ type Shot = {
   icon?: string;
   jump?: number;
   chill?: boolean;
-  fx?: "fries" | "wasabi" | "nugget" | "patty" | "wing" | "double" | "fillet";
+  wall?: number;
+  flown?: number;
+  back?: boolean;
+  pull?: number;
+  snare?: number;
+  fx?: "fries" | "wasabi" | "nugget" | "patty" | "wing" | "double" | "fillet" | "cheese";
 };
-type Zone = { x: number; y: number; r: number; life: number; span: number; tick: number; dmg: number; slow: boolean; once?: boolean; icon?: string; aim?: number; fan?: number; fx?: "ice" | "frost" | "sauce" | "pie" | "rain" | "wasabi" | "coffee" | "slam" | "paste" };
+type Zone = { x: number; y: number; r: number; life: number; span: number; tick: number; dmg: number; slow: boolean; once?: boolean; icon?: string; aim?: number; fan?: number; pull?: boolean; follow?: boolean; fx?: "ice" | "frost" | "sauce" | "pie" | "rain" | "wasabi" | "coffee" | "slam" | "paste" | "whirl" };
 type Bomb = { x: number; y: number; fuse: number; r: number; dmg: number };
-type Drop = { x: number; y: number; kind: "gold" | "heal" | "shield"; amount: number };
-type Floater = { x: number; y: number; text: string; life: number; color: string };
+type Drop = { x: number; y: number; kind: "gold" | "heal" | "shield" | "spell"; amount: number; skill?: SkillId };
+type Floater = { x: number; y: number; text: string; life: number; color: string; size: number };
 type Bit = { x: number; y: number; vx: number; vy: number; life: number; color: string; size: number };
 
 const W = 960;
@@ -78,7 +96,7 @@ const waves: Array<{ normal: number; elite: number; boss: number }> = [
   { normal: 10, elite: 0, boss: 0 },
   { normal: 10, elite: 2, boss: 0 },
   { normal: 12, elite: 2, boss: 0 },
-  { normal: 12, elite: 4, boss: 0 },
+  { normal: 8, elite: 0, boss: 1 },
   { normal: 14, elite: 2, boss: 0 },
   { normal: 14, elite: 3, boss: 0 },
   { normal: 16, elite: 3, boss: 0 },
@@ -159,12 +177,10 @@ function drawStamp(ctx: CanvasRenderingContext2D, src: string, x: number, y: num
   ctx.drawImage(image, x - w / 2, y - h / 2, w, h);
 }
 
-function length(x: number, y: number) {
-  return Math.hypot(x, y) || 1;
-}
-
 export class Battle {
   paused = true;
+  private speed: 1 | 2 | 3 = 1;
+  private charge: { x: number; y: number; sx: number; sy: number; left: number; span: number; hit: Set<number>; dmg: number; root: number } | null = null;
   onShop: (() => void) | null = null;
   onPending: (() => void) | null = null;
   onDead: (() => void) | null = null;
@@ -177,7 +193,9 @@ export class Battle {
   wave = 1;
   scene: 1 | 2 = 1;
   slots: Array<SlotState | null> = Array.from({ length: 8 }, () => null);
+  relics: SlotState[] = [];
   offers: SkillId[] = [];
+  meals: ComboId[] = pickCombos();
   refreshes = 0;
   pending: SkillId | null = null;
   over: Hud["over"] = "";
@@ -201,26 +219,9 @@ export class Battle {
   private shake = 0;
   private juicePool = 0;
   private juiceCd = 0;
-  private milkCd = 2;
-  private coffeeCd = 3;
-  private coffeeHurt = false;
-  private teaCd = 4;
   private teaLeft = 0;
-  private pieCd = 1;
-  private autoCd = 0.6;
-  private sodaCd = 0.8;
-  private iceCd = 1;
-  private sauceCd = 1.5;
-  private spikeCd = 0.8;
-  private fryCd = 0.5;
-  private wingCd = 1;
-  private rainCd = 1.2;
-  private stompCd = 2;
-  private rageCd = 4;
   private rageLeft = 0;
   private stood = false;
-  private giftOrbit = 0;
-  private giftStand = false;
   private pops: Array<{ x: number; y: number; life: number }> = [];
   private spawnCd = 0.4;
   private leftNormal = 8;
@@ -263,10 +264,12 @@ export class Battle {
     this.last = performance.now();
     const loop = (now: number) => {
       if (!this.running) return;
-      const dt = Math.min(0.033, (now - this.last) / 1000);
+      const frame = Math.min(0.033, (now - this.last) / 1000);
       this.last = now;
       this.resize();
-      if (!this.paused && !this.over) this.update(dt);
+      if (!this.paused && !this.over) {
+        for (let step = 0; step < this.speed; step += 1) this.update(frame);
+      }
       this.draw();
       this.onChange?.();
       requestAnimationFrame(loop);
@@ -287,6 +290,11 @@ export class Battle {
     this.stickOn = on;
   }
 
+  cycleSpeed() {
+    this.speed = this.speed === 1 ? 2 : this.speed === 2 ? 3 : 1;
+    return this.speed;
+  }
+
   hud(): Hud {
     return {
       hp: Math.max(0, Math.ceil(this.hp)),
@@ -296,6 +304,7 @@ export class Battle {
       wave: this.wave,
       scene: this.scene,
       slots: this.slots.map((slot) => (slot ? { ...slot } : null)),
+      relics: this.relics.map((slot) => ({ ...slot })),
       offers: [...this.offers],
       refreshes: this.refreshes,
       refreshCost: this.refreshCost(),
@@ -308,14 +317,16 @@ export class Battle {
   buy(id: SkillId) {
     const def = skillById[id];
     if (this.gold < def.price) return false;
-    const owned = this.slots.find((slot) => slot?.id === id);
+    const owned = this.slot(id);
     if (owned) {
-      if (def.kind === "被动") {
+      if (def.kind === "增益" || def.kind === "神器") {
         if (owned.rank >= 3) return false;
         owned.rank += 1;
       } else if (!owned.branch) {
         return false;
       } else return false;
+    } else if (def.kind === "神器") {
+      this.relics.push({ id, rank: 1, branch: null });
     } else {
       const index = this.slots.findIndex((slot) => !slot);
       if (index < 0) return false;
@@ -324,16 +335,21 @@ export class Battle {
     this.gold = Math.round((this.gold - def.price) * 10) / 10;
     this.sfx.levelUp();
     this.burst(this.px, this.py, "#ffbc0d");
+    this.syncVitals();
     return true;
   }
 
   chooseMeal(id: ComboId) {
     const combo = comboById[id];
-    if (this.slots.some((slot) => slot)) return false;
-    if (this.slots.filter((slot) => !slot).length < combo.grants.length) return false;
-    for (const skillId of combo.grants) {
+    if (this.slots.some((slot) => slot) || this.relics.length) return false;
+    const gear = combo.grants.filter((skillId) => skillById[skillId].kind !== "神器");
+    if (this.slots.filter((slot) => !slot).length < gear.length) return false;
+    for (const skillId of gear) {
       const index = this.slots.findIndex((slot) => !slot);
       this.slots[index] = { id: skillId, rank: 1, branch: null };
+    }
+    for (const skillId of combo.grants) {
+      if (skillById[skillId].kind === "神器") this.relics.push({ id: skillId, rank: 1, branch: null });
     }
     this.beginWave();
     this.paused = false;
@@ -343,7 +359,7 @@ export class Battle {
 
   needsBranch(id: SkillId) {
     const slot = this.slots.find((item) => item?.id === id);
-    return Boolean(slot && skillById[id].kind === "主动" && !slot.branch);
+    return Boolean(slot && skillById[id].kind === "技能" && !slot.branch);
   }
 
   chooseBranch(id: SkillId, branch: "a" | "b") {
@@ -358,6 +374,17 @@ export class Battle {
     this.sfx.levelUp();
   }
 
+  recycleRelic(index: number) {
+    const slot = this.relics[index];
+    if (!slot) return 0;
+    const gain = recyclePrice(skillById[slot.id].price, slot.rank, Boolean(slot.branch));
+    this.relics.splice(index, 1);
+    this.gold = Math.round((this.gold + gain) * 10) / 10;
+    this.sfx.pick();
+    this.syncVitals();
+    return gain;
+  }
+
   recycle(index: number) {
     const slot = this.slots[index];
     if (!slot) return 0;
@@ -365,6 +392,7 @@ export class Battle {
     this.slots[index] = null;
     this.gold = Math.round((this.gold + gain) * 10) / 10;
     this.sfx.pick();
+    this.syncVitals();
     return gain;
   }
 
@@ -432,6 +460,7 @@ export class Battle {
     this.eliteCursor = 0;
     this.bossCursor = 0;
     this.slots = Array.from({ length: 8 }, () => null);
+    this.relics = [];
     this.pending = null;
     this.over = "";
     this.paused = true;
@@ -444,11 +473,12 @@ export class Battle {
     this.py = 340;
     this.banner = "第 1 关";
     this.stood = false;
-    this.giftOrbit = 0;
-    this.giftStand = false;
     this.pops = [];
+    this.charge = null;
     this.rageLeft = 0;
     this.maxHp = 100;
+    this.meals = pickCombos();
+    this.syncVitals();
   }
 
   private resize = () => {
@@ -476,16 +506,30 @@ export class Battle {
   };
 
   private has(id: SkillId) {
-    return this.slots.some((slot) => slot?.id === id);
+    return Boolean(this.slot(id));
   }
 
   private slot(id: SkillId) {
-    return this.slots.find((item) => item?.id === id) ?? null;
+    return this.slots.find((item) => item?.id === id) ?? this.relics.find((item) => item.id === id) ?? null;
   }
 
-  private haste() {
-    const rank = this.slot("gen")?.rank ?? 0;
-    return [1, 0.85, 0.7, 0.55][rank];
+  private bolt(shot: Shot) {
+    shot.life = Math.max(shot.life, 8);
+    shot.wall = (shot.wall ?? 0) + (this.slot("twist")?.rank ?? 0);
+    return shot;
+  }
+
+  private attackGap() {
+    const haste = (this.slot("haste")?.rank ?? 0) * 0.22;
+    const rage = this.rageLeft > 0 ? 0.4 : 0;
+    return 1.05 / (1 + haste + rage);
+  }
+
+  private syncVitals() {
+    const next = 100 + (this.slot("cocoa")?.rank ?? 0) * 18;
+    if (next > this.maxHp) this.hp += next - this.maxHp;
+    this.maxHp = next;
+    this.hp = Math.min(this.hp, this.maxHp);
   }
 
   private beginWave() {
@@ -495,6 +539,7 @@ export class Battle {
       this.leftElite = 2;
       this.leftBoss = 1;
       this.spawnCd = 0.35;
+      this.fieldCd = 3.2;
       this.banner = `无尽 第 ${this.endlessWave} 波`;
       this.scene = 2;
       this.float(W / 2, 70, this.banner, "#2d2d2d");
@@ -506,6 +551,7 @@ export class Battle {
     this.leftElite = plan.elite;
     this.leftBoss = plan.boss;
     this.spawnCd = 0.35;
+    this.fieldCd = 3.2;
     this.banner = `第 ${this.wave} 关`;
     this.scene = 1;
     this.float(W / 2, 70, this.banner, "#2d2d2d");
@@ -549,7 +595,8 @@ export class Battle {
       if (this.sweepLeft <= 0) this.openShop();
       return;
     }
-    this.movePlayer(dt);
+    if (this.charge) this.updateCharge(dt);
+    else this.movePlayer(dt);
     this.cast(dt);
     this.spawn(dt);
     this.updateShots(dt);
@@ -569,12 +616,11 @@ export class Battle {
     if (this.leftNormal + this.leftElite + this.leftBoss === 0 && this.enemies.length === 0) this.startSweep();
     if (this.hp <= 0 && !this.over) {
       const stand = this.slot("stand");
-      if ((stand || this.giftStand) && !this.stood) {
+      if (stand && !this.stood) {
         this.stood = true;
-        this.giftStand = false;
-        this.hp = this.maxHp * (stand?.branch === "a" ? 0.5 : 0.3);
+        this.hp = this.maxHp * (stand.rank >= 2 ? 0.5 : 0.3);
         this.shield = Math.max(this.shield, this.shieldValue(18));
-        if (stand?.branch === "b") this.iframe = 1.5;
+        if (stand.rank >= 3) this.iframe = 1.5;
         this.float(this.px, this.py - 30, "站起来", "#2d2d2d");
         return;
       }
@@ -602,7 +648,8 @@ export class Battle {
       y /= mag;
       this.face = Math.atan2(y, x);
       const cola = this.slot("cola");
-      const pace = 200 * (cola && this.hp < this.maxHp * 0.5 ? 1 + 0.18 * cola.rank : 1);
+      const lemon = this.slot("lemon");
+      const pace = 200 * (cola && this.hp < this.maxHp * 0.5 ? 1 + 0.18 * cola.rank : 1) * (lemon ? 1 + 0.1 * lemon.rank : 1);
       const next = this.collide(this.px + x * pace * dt, this.py + y * pace * dt, 16);
       this.px = next.x;
       this.py = next.y;
@@ -620,335 +667,493 @@ export class Battle {
     return { x, y };
   }
 
+  private puff(x: number, y: number, color: string, count = 8, speed = 80) {
+    for (let i = 0; i < count; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const pace = speed * (0.35 + Math.random() * 0.8);
+      this.bits.push({
+        x,
+        y,
+        vx: Math.cos(angle) * pace,
+        vy: Math.sin(angle) * pace,
+        life: 0.28 + Math.random() * 0.28,
+        color,
+        size: 2 + Math.random() * 3,
+      });
+    }
+  }
+
+  private updateCharge(dt: number) {
+    const charge = this.charge;
+    if (!charge) return;
+    charge.left -= dt;
+    const t = 1 - Math.max(0, charge.left) / charge.span;
+    const x = charge.sx + (charge.x - charge.sx) * t;
+    const y = charge.sy + (charge.y - charge.sy) * t;
+    this.bits.push({
+      x: this.px,
+      y: this.py,
+      vx: (this.px - x) * 2,
+      vy: (this.py - y) * 2,
+      life: 0.32,
+      color: Math.random() < 0.5 ? "#fff" : "#c4a574",
+      size: 5,
+    });
+    this.px = x;
+    this.py = y;
+    for (const enemy of this.enemies) {
+      if (charge.hit.has(enemy.id)) continue;
+      if (Math.hypot(enemy.x - this.px, enemy.y - this.py) > enemy.r + 22) continue;
+      charge.hit.add(enemy.id);
+      this.hitEnemy(enemy, charge.dmg);
+      const angle = Math.atan2(charge.y - charge.sy, charge.x - charge.sx);
+      const next = this.collide(enemy.x + Math.cos(angle) * 42, enemy.y + Math.sin(angle) * 42, enemy.r);
+      enemy.x = next.x;
+      enemy.y = next.y;
+      if (charge.root > 0) enemy.root = Math.max(enemy.root, charge.root);
+      this.puff(enemy.x, enemy.y, "#6b3a1f", 6, 60);
+    }
+    if (charge.left <= 0) {
+      this.px = charge.x;
+      this.py = charge.y;
+      this.charge = null;
+      this.puff(this.px, this.py, "#fff", 12, 90);
+    }
+  }
+
   private cast(dt: number) {
-    this.giftOrbit = Math.max(0, this.giftOrbit - dt);
+    this.rageLeft = Math.max(0, this.rageLeft - dt);
     this.orbitAngle += dt * 2.2;
     this.shotCd -= dt;
     if (this.shotCd <= 0) {
-      this.shotCd = 1.05;
+      this.shotCd = this.attackGap();
       const target = this.nearest(this.px, this.py);
       if (target) this.fireBasic(target);
-    }
-    const haste = this.haste();
-    if (this.has("auto")) {
-      this.autoCd -= dt;
-      const wait = ((this.slot("auto")?.branch === "a" ? 0.9 : 1.4) * haste);
-      if (this.autoCd <= 0) {
-        this.autoCd = wait;
-        this.fireOrb(this.slot("auto")?.branch === "b");
-      }
-    }
-    if (this.has("pie")) {
-      this.pieCd -= dt;
-      if (this.pieCd <= 0) {
-        this.pieCd = 2 * haste;
-        const aim = this.nearest(this.px, this.py);
-        const angle = aim ? Math.atan2(aim.y - this.py, aim.x - this.px) : this.face;
-        const branch = this.slot("pie")?.branch;
-        const stay = branch === "a" ? 4 : 2.5;
-        this.zones.push({
-          x: this.px + Math.cos(angle) * 70,
-          y: this.py + Math.sin(angle) * 70,
-          r: branch === "b" ? 78 : 50,
-          life: stay,
-          span: stay,
-          tick: 0,
-          dmg: 4,
-          slow: false,
-          icon: skillById.pie.image,
-          fx: "pie",
-        });
-      }
-    }
-    if (this.has("soda")) {
-      this.sodaCd -= dt;
-      if (this.sodaCd <= 0) {
-        this.sodaCd = 1.6 * haste;
-        const branch = this.slot("soda")?.branch;
-        const speed = branch === "a" ? 460 : 340;
-        const spread = branch === "b" ? 0.35 : 0.12;
-        for (const offset of branch === "b" ? [-spread, 0, spread] : [0]) {
-          this.shots.push({
-            x: this.px,
-            y: this.py,
-            vx: Math.cos(this.face + offset) * speed,
-            vy: Math.sin(this.face + offset) * speed,
-            r: 7,
-            dmg: 8,
-            life: 1.35,
-            good: true,
-            pierce: 2,
-            hit: new Set(),
-            kind: "soda",
-            splitGen: 0,
-            homing: 0,
-            icon: skillById.soda.image,
-          });
-        }
-        this.float(this.px, this.py - 34, "雪碧", "#2d2d2d");
-        this.sfx.shoot();
-      }
-    }
-    if (this.has("ice")) {
-      this.iceCd -= dt;
-      if (this.iceCd <= 0) {
-        this.iceCd = 2.4 * haste;
-        const branch = this.slot("ice")?.branch;
-        this.zones.push({
-          x: this.px,
-          y: this.py,
-          r: branch === "a" ? 170 : 128,
-          life: 0.85,
-          span: 0.85,
-          tick: 0,
-          dmg: 7,
-          slow: true,
-          once: true,
-          icon: skillById.ice.image,
-          fx: "ice",
-        });
-        this.float(this.px, this.py - 46, "冰淇淋", "#2d2d2d");
-        if (branch === "b") {
-          this.zones.push({ x: this.px, y: this.py, r: 80, life: 1.6, span: 1.6, tick: 0.2, dmg: 2, slow: true, icon: skillById.ice.image, fx: "frost" });
-        }
-      }
-    }
-    if (this.has("milk")) {
-      this.milkCd -= dt;
-      const branch = this.slot("milk")?.branch;
-      if (this.milkCd <= 0) {
-        this.milkCd = branch === "a" ? 5 : 8;
-        this.shield = Math.max(this.shield, this.shieldValue(branch === "b" ? 48 : 30));
-        this.sfx.shield();
-      }
-    }
-    if (this.has("coffee")) {
-      this.coffeeCd -= dt;
-      if (this.coffeeCd <= 0) {
-        this.coffeeCd = 6;
-        if (this.coffeeHurt) {
-          this.coffeeHurt = false;
-          const branch = this.slot("coffee")?.branch;
-          const radius = branch === "b" ? 130 : 78;
-        this.pulse(this.px, this.py, radius, branch === "a" ? 14 : 8, "coffee");
-        }
-      }
-    }
-    if (this.has("tea")) {
-      this.teaCd -= dt;
-      if (this.teaCd <= 0) {
-        const branch = this.slot("tea")?.branch;
-        this.teaCd = 10;
-        this.teaLeft = branch === "a" ? 3.2 : 2;
-        this.float(this.px, this.py - 34, "红茶", "#2d2d2d");
-      }
-    }
-    if (this.has("sauce")) {
-      this.sauceCd -= dt;
-      if (this.sauceCd <= 0) {
-        this.sauceCd = 4;
-        const target = this.nearest(this.px, this.py);
-        if (target) {
-          const branch = this.slot("sauce")?.branch;
-          this.zones.push({
-            x: target.x,
-            y: target.y,
-            r: branch === "b" ? 78 : 48,
-            life: 1.6,
-            span: 1.6,
-            tick: 0,
-            dmg: 2,
-            slow: true,
-            icon: skillById.sauce.image,
-            fx: "sauce",
-          });
-          if (branch === "a") target.slow = Math.max(target.slow, 1.4);
-          this.float(this.px, this.py - 34, "酱", "#2d2d2d");
-        }
-      }
-    }
-    if (this.has("spike")) {
-      this.spikeCd -= dt;
-      if (this.spikeCd <= 0) {
-        this.spikeCd = 1.8;
-        const branch = this.slot("spike")?.branch;
-        const reach = 168;
-        const width = branch === "a" ? 0.85 : 0.42;
-        this.zones.push({ x: this.px, y: this.py, r: reach, life: 0.32, span: 0.32, tick: 0, dmg: 0, slow: false, once: true, aim: this.face, fan: width, fx: "wasabi" });
-        for (const enemy of this.enemies) {
-          const angle = Math.atan2(enemy.y - this.py, enemy.x - this.px);
-          const diff = Math.atan2(Math.sin(angle - this.face), Math.cos(angle - this.face));
-          if (Math.abs(diff) > width || Math.hypot(enemy.x - this.px, enemy.y - this.py) > reach + enemy.r) continue;
-          this.hitEnemy(enemy, 9);
-          enemy.slow = Math.max(enemy.slow, branch === "b" ? 1.1 : 0.45);
-        }
-        if (branch === "b") {
-          this.zones.push({
-            x: this.px + Math.cos(this.face) * 78,
-            y: this.py + Math.sin(this.face) * 78,
-            r: 46,
-            life: 1.3,
-            span: 1.3,
-            tick: 0.3,
-            dmg: 2,
-            slow: true,
-            fx: "paste",
-          });
-        }
-        this.float(this.px, this.py - 34, "山葵", "#5a9a22");
-      }
-    }
-    if (this.has("rain")) {
-      this.rainCd -= dt;
-      if (this.rainCd <= 0) {
-        this.rainCd = 3;
-        const branch = this.slot("rain")?.branch;
-        const count = branch === "a" ? 8 : 5;
-        for (let i = 1; i <= count; i += 1) {
-          const spread = (i - (count + 1) / 2) * 0.22;
-          const dist = 36 + i * 22;
-          this.zones.push({
-            x: this.px + Math.cos(this.face + spread) * dist,
-            y: this.py + Math.sin(this.face + spread) * dist,
-            r: 26,
-            life: branch === "b" ? 0.9 : 0.35,
-            span: branch === "b" ? 0.9 : 0.35,
-            tick: 0,
-            dmg: 4,
-            slow: false,
-            once: branch !== "b",
-            icon: skillById.rain.image,
-            fx: "rain",
-          });
-        }
-        this.float(this.px, this.py - 34, "薯雨", "#2d2d2d");
-      }
-    }
-    if (this.has("stomp")) {
-      this.stompCd -= dt;
-      if (this.stompCd <= 0) {
-        this.stompCd = 7;
-        const branch = this.slot("stomp")?.branch;
-        const radius = branch === "a" ? 140 : 96;
-        this.pulse(this.px, this.py, radius, 6, "slam");
-        for (const enemy of this.enemies) {
-          const dist = Math.hypot(enemy.x - this.px, enemy.y - this.py);
-          if (dist > radius + enemy.r || dist === 0) continue;
-          const push = branch === "a" ? 78 : 40;
-          const next = this.collide(enemy.x + ((enemy.x - this.px) / dist) * push, enemy.y + ((enemy.y - this.py) / dist) * push, enemy.r);
-          enemy.x = next.x;
-          enemy.y = next.y;
-          if (branch === "b") enemy.slow = Math.max(enemy.slow, 0.6);
-        }
-        this.float(this.px, this.py - 34, "鸡排", "#2d2d2d");
-      }
-    }
-    if (this.has("rage")) {
-      this.rageLeft = Math.max(0, this.rageLeft - dt);
-      this.rageCd -= dt;
-      if (this.rageCd <= 0) {
-        const branch = this.slot("rage")?.branch;
-        this.rageCd = 12;
-        this.rageLeft = branch === "a" ? 8 : 5;
-        this.float(this.px, this.py - 34, "龙焰", "#db0007");
-      }
-    }
-    if (this.has("follow")) {
-      this.fryCd -= dt;
-      if (this.fryCd <= 0) {
-        const branch = this.slot("follow")?.branch;
-        this.fryCd = 1.25;
-        const target = this.nearest(this.px, this.py);
-        const base = target ? Math.atan2(target.y - this.py, target.x - this.px) : this.face;
-        const count = branch === "a" ? 5 : 3;
-        for (let i = 0; i < count; i += 1) {
-          const offset = (i - (count - 1) / 2) * 0.28;
-          this.shots.push({
-            x: this.px,
-            y: this.py,
-            vx: Math.cos(base + offset) * 360,
-            vy: Math.sin(base + offset) * 360,
-            r: 7,
-            dmg: 5,
-            life: 1.3,
-            good: true,
-            pierce: 0,
-            hit: new Set(),
-            kind: "basic",
-            splitGen: 0,
-            homing: branch === "a" ? 2 : 1,
-            fx: "fries",
-          });
-        }
-      }
-    }
-    if (this.has("wing")) {
-      this.wingCd -= dt;
-      if (this.wingCd <= 0) {
-        const branch = this.slot("wing")?.branch;
-        this.wingCd = 2.3;
-        const count = branch === "a" ? 5 : 3;
-        for (let i = 0; i < count; i += 1) {
-          const offset = (i - (count - 1) / 2) * 0.34;
-          this.shots.push({
-            x: this.px,
-            y: this.py,
-            vx: Math.cos(this.face + offset) * 300,
-            vy: Math.sin(this.face + offset) * 300,
-            r: branch === "b" ? 12 : 8,
-            dmg: 8,
-            life: 1.1,
-            good: true,
-            pierce: 3,
-            hit: new Set(),
-            kind: "basic",
-            splitGen: 0,
-            homing: 0,
-            fx: "wing",
-          });
-        }
-        this.float(this.px, this.py - 34, "鸡翅", "#2d2d2d");
-      }
     }
     this.fieldCd -= dt;
     if (this.fieldCd <= 0) {
       const rank = this.slot("drops")?.rank ?? 0;
-      this.fieldCd = [14, 12, 10, 8][rank];
+      const gen = this.slot("gen")?.rank ?? 0;
+      this.fieldCd = Math.max(5, [11, 9, 7, 6][rank] - gen);
       this.spawnField();
     }
   }
 
+  private unlockedSpells() {
+    return this.slots.flatMap((slot) => (slot && skillById[slot.id].kind === "技能" ? [slot.id] : []));
+  }
+
+  private release(id: SkillId) {
+    const branch = this.slot(id)?.branch;
+    const name = skillById[id].name;
+    if (id === "auto") {
+      this.fireOrb(branch === "a" ? "triple" : branch === "b" ? "heavy" : "single");
+      this.puff(this.px, this.py, "#ffbc0d", 10, 90);
+      this.float(this.px, this.py - 34, name, "#2d2d2d");
+      return;
+    }
+    if (id === "follow") {
+      const target = this.nearest(this.px, this.py);
+      const base = target ? Math.atan2(target.y - this.py, target.x - this.px) : this.face;
+      const count = branch === "a" ? 7 : 5;
+      const spread = branch === "a" ? 0.2 : 0.14;
+      for (let i = 0; i < count; i += 1) {
+        const offset = (i - (count - 1) / 2) * spread;
+        this.shots.push(this.bolt({
+          x: this.px,
+          y: this.py,
+          vx: Math.cos(base + offset) * 420,
+          vy: Math.sin(base + offset) * 420,
+          r: 8,
+          dmg: 9 + this.rageBonus(),
+          life: 8,
+          good: true,
+          pierce: 1,
+          hit: new Set(),
+          kind: "basic",
+          splitGen: 0,
+          homing: 0,
+          fx: "fries",
+          snare: branch === "b" ? 0.45 : 0,
+        }));
+      }
+      this.sfx.shoot();
+      this.puff(this.px, this.py, "#ffbc0d", 10, 90);
+      this.float(this.px, this.py - 34, name, "#2d2d2d");
+      return;
+    }
+    if (id === "pie") {
+      const aim = this.nearest(this.px, this.py);
+      const angle = aim ? Math.atan2(aim.y - this.py, aim.x - this.px) : this.face;
+      const stay = branch === "a" ? 4.2 : 2.6;
+      this.zones.push({
+        x: this.px + Math.cos(angle) * 86,
+        y: this.py + Math.sin(angle) * 86,
+        r: branch === "b" ? 92 : 58,
+        life: stay,
+        span: stay,
+        tick: 0,
+        dmg: 8,
+        slow: true,
+        fx: "pie",
+      });
+      this.puff(this.px, this.py, "#ffbc0d", 10, 90);
+      this.float(this.px, this.py - 34, name, "#2d2d2d");
+      return;
+    }
+    if (id === "wing") {
+      this.aimAt();
+      const count = branch === "a" ? 5 : 3;
+      for (let i = 0; i < count; i += 1) {
+        const offset = (i - (count - 1) / 2) * 0.32;
+        this.shots.push(this.bolt({
+          x: this.px,
+          y: this.py,
+          vx: Math.cos(this.face + offset) * 340,
+          vy: Math.sin(this.face + offset) * 340,
+          r: branch === "b" ? 14 : 9,
+          dmg: 14 + this.rageBonus(),
+          life: 8,
+          good: true,
+          pierce: 5,
+          hit: new Set(),
+          kind: "basic",
+          splitGen: 0,
+          homing: 0,
+          fx: "wing",
+          back: false,
+          flown: 0,
+        }));
+      }
+      this.sfx.shoot();
+      this.puff(this.px, this.py, "#ffbc0d", 10, 90);
+      this.float(this.px, this.py - 34, name, "#2d2d2d");
+      return;
+    }
+    if (id === "soda") {
+      this.aimAt();
+      const speed = branch === "a" ? 620 : 460;
+      const spread = 0.2;
+      for (const offset of branch === "b" ? [-spread, 0, spread] : [0]) {
+        this.shots.push(this.bolt({
+          x: this.px + Math.cos(this.face) * 20,
+          y: this.py + Math.sin(this.face) * 20,
+          vx: Math.cos(this.face + offset) * speed,
+          vy: Math.sin(this.face + offset) * speed,
+          r: 12,
+          dmg: 18 + this.rageBonus(),
+          life: 8,
+          good: true,
+          pierce: 8,
+          hit: new Set(),
+          kind: "soda",
+          splitGen: 0,
+          homing: 0,
+        }));
+      }
+      this.sfx.shoot();
+      this.puff(this.px, this.py, "#ffbc0d", 10, 90);
+      this.float(this.px, this.py - 34, name, "#2d2d2d");
+      return;
+    }
+    if (id === "ice") {
+      const radius = branch === "a" ? 188 : 140;
+      this.zones.push({
+        x: this.px,
+        y: this.py,
+        r: radius,
+        life: 0.7,
+        span: 0.7,
+        tick: 0,
+        dmg: 12,
+        slow: true,
+        once: true,
+        fx: "ice",
+      });
+      this.shove(this.px, this.py, radius, branch === "a" ? 92 : 58, 1.1, 0.45);
+      this.puff(this.px, this.py, "#ffffff", 16, 120);
+      if (branch === "b") {
+        this.zones.push({ x: this.px, y: this.py, r: 96, life: 2.2, span: 2.2, tick: 0.25, dmg: 3, slow: true, fx: "frost" });
+      }
+      this.float(this.px, this.py - 46, name, "#2d2d2d");
+      return;
+    }
+    if (id === "sauce") {
+      const target = this.nearest(this.px, this.py);
+      const x = target?.x ?? this.px + Math.cos(this.face) * 110;
+      const y = target?.y ?? this.py + Math.sin(this.face) * 110;
+      this.zones.push({
+        x,
+        y,
+        r: branch === "b" ? 96 : 58,
+        life: 2.2,
+        span: 2.2,
+        tick: 0,
+        dmg: 6,
+        slow: true,
+        fx: "sauce",
+      });
+      if (target && branch === "a") target.slow = Math.max(target.slow, 1.8);
+      this.puff(this.px, this.py, "#ffbc0d", 10, 90);
+      this.float(this.px, this.py - 34, name, "#2d2d2d");
+      return;
+    }
+    if (id === "spike") {
+      this.aimAt();
+      const reach = 196;
+      const width = branch === "a" ? 0.95 : 0.5;
+      this.zones.push({ x: this.px, y: this.py, r: reach, life: 0.28, span: 0.28, tick: 0, dmg: 0, slow: false, once: true, aim: this.face, fan: width, fx: "wasabi" });
+      for (const enemy of this.enemies) {
+        const angle = Math.atan2(enemy.y - this.py, enemy.x - this.px);
+        const diff = Math.atan2(Math.sin(angle - this.face), Math.cos(angle - this.face));
+        const dist = Math.hypot(enemy.x - this.px, enemy.y - this.py);
+        if (Math.abs(diff) > width || dist > reach + enemy.r) continue;
+        const outer = dist > reach * 0.62;
+        this.hitEnemy(enemy, (outer ? 28 : 14) + this.rageBonus());
+        if (outer) enemy.root = Math.max(enemy.root, branch === "b" ? 0.75 : 0.35);
+        enemy.slow = Math.max(enemy.slow, 0.5);
+      }
+      if (branch === "b") {
+        this.zones.push({
+          x: this.px + Math.cos(this.face) * 90,
+          y: this.py + Math.sin(this.face) * 90,
+          r: 52,
+          life: 1.6,
+          span: 1.6,
+          tick: 0.3,
+          dmg: 4,
+          slow: true,
+          fx: "paste",
+        });
+      }
+      this.puff(this.px, this.py, "#8fd14f", 12, 100);
+      this.float(this.px, this.py - 34, name, "#5a9a22");
+      return;
+    }
+    if (id === "rain") {
+      this.aimAt();
+      const count = branch === "a" ? 9 : 6;
+      for (let i = 1; i <= count; i += 1) {
+        const spread = (i - (count + 1) / 2) * 0.18;
+        const dist = 40 + i * 24;
+        this.zones.push({
+          x: this.px + Math.cos(this.face + spread) * dist,
+          y: this.py + Math.sin(this.face + spread) * dist,
+          r: 30,
+          life: branch === "b" ? 1.05 : 0.4,
+          span: branch === "b" ? 1.05 : 0.4,
+          tick: 0,
+          dmg: 9,
+          slow: false,
+          once: branch !== "b",
+          fx: "rain",
+        });
+      }
+      this.puff(this.px, this.py, "#ffbc0d", 10, 90);
+      this.float(this.px, this.py - 34, name, "#2d2d2d");
+      return;
+    }
+    if (id === "milk") {
+      this.shield = Math.max(this.shield, this.shieldValue(branch === "b" ? 56 : 34));
+      if (branch === "a") {
+        const heal = 16;
+        this.hp = Math.min(this.maxHp, this.hp + heal);
+        this.float(this.px, this.py - 52, `+${heal}`, "#db0007");
+      }
+      this.sfx.shield();
+      this.puff(this.px, this.py, "#ffbc0d", 10, 90);
+      this.float(this.px, this.py - 34, name, "#2d2d2d");
+      return;
+    }
+    if (id === "coffee") {
+      const radius = branch === "b" ? 150 : 96;
+      this.pulse(this.px, this.py, radius, (branch === "a" ? 22 : 14) + this.rageBonus(), "coffee");
+      this.shove(this.px, this.py, radius, 36, 0, 0.35);
+      this.puff(this.px, this.py, "#ffbc0d", 10, 90);
+      this.float(this.px, this.py - 34, name, "#2d2d2d");
+      return;
+    }
+    if (id === "tea") {
+      this.teaLeft = Math.max(this.teaLeft, branch === "a" ? 6 : 3.6);
+      this.puff(this.px, this.py, "#ffbc0d", 10, 90);
+      this.float(this.px, this.py - 34, name, "#2d2d2d");
+      return;
+    }
+    if (id === "stomp") {
+      const radius = branch === "a" ? 168 : 112;
+      this.pulse(this.px, this.py, radius, 16 + this.rageBonus(), "slam");
+      this.shove(this.px, this.py, radius, branch === "a" ? 110 : 62, branch === "b" ? 0.9 : 0.35, branch === "b" ? 0.85 : 0.4);
+      this.puff(this.px, this.py, "#ffbc0d", 10, 90);
+      this.float(this.px, this.py - 34, name, "#2d2d2d");
+      return;
+    }
+    if (id === "rage") {
+      this.rageLeft = Math.max(this.rageLeft, branch === "a" ? 8 : 5);
+      this.puff(this.px, this.py, "#ff7a18", 14, 120);
+      this.float(this.px, this.py - 34, name, "#db0007");
+      return;
+    }
+    if (id === "hook") {
+      this.aimAt();
+      const speed = branch === "a" ? 300 : 220;
+      this.shots.push(this.bolt({
+        x: this.px,
+        y: this.py,
+        vx: Math.cos(this.face) * speed,
+        vy: Math.sin(this.face) * speed,
+        r: 11,
+        dmg: 14 + this.rageBonus(),
+        life: 8,
+        good: true,
+        pierce: 0,
+        hit: new Set(),
+        kind: "basic",
+        splitGen: 0,
+        homing: 0,
+        fx: "cheese",
+        pull: branch === "a" ? 260 : 180,
+        snare: branch === "b" ? 1.1 : 0.55,
+      }));
+      this.sfx.shoot();
+      this.puff(this.px, this.py, "#ffbc0d", 8, 70);
+      this.float(this.px, this.py - 34, name, "#ffbc0d");
+      return;
+    }
+    if (id === "dash") {
+      this.aimAt();
+      const dist = branch === "a" ? 220 : 150;
+      let x = this.px;
+      let y = this.py;
+      const step = dist / 14;
+      for (let i = 0; i < 14; i += 1) {
+        const next = this.collide(x + Math.cos(this.face) * step, y + Math.sin(this.face) * step, 16);
+        if (Math.hypot(next.x - x, next.y - y) < 3) break;
+        x = next.x;
+        y = next.y;
+      }
+      const travel = Math.hypot(x - this.px, y - this.py);
+      const span = Math.max(0.18, travel / 680);
+      this.charge = {
+        sx: this.px,
+        sy: this.py,
+        x,
+        y,
+        left: span,
+        span,
+        hit: new Set(),
+        dmg: 18 + this.rageBonus(),
+        root: branch === "b" ? 0.75 : 0,
+      };
+      this.iframe = Math.max(this.iframe, span);
+      this.puff(this.px, this.py, "#c4a574", 10, 70);
+      this.float(this.px, this.py - 34, name, "#6b3a1f");
+      return;
+    }
+    if (id === "roll") {
+      this.aimAt();
+      this.shots.push(this.bolt({
+        x: this.px + Math.cos(this.face) * 22,
+        y: this.py + Math.sin(this.face) * 22,
+        vx: Math.cos(this.face) * 280,
+        vy: Math.sin(this.face) * 280,
+        r: branch === "b" ? 18 : 13,
+        dmg: (branch === "b" ? 22 : 14) + this.rageBonus(),
+        life: 8,
+        good: true,
+        pierce: 8,
+        hit: new Set(),
+        kind: "basic",
+        splitGen: 0,
+        homing: 0,
+        fx: "patty",
+        wall: branch === "a" ? 5 : 3,
+      }));
+      this.sfx.shoot();
+      this.puff(this.px, this.py, "#e2a04a", 10, 80);
+      this.float(this.px, this.py - 34, name, "#e2a04a");
+      return;
+    }
+    if (id === "brand") {
+      const targets = this.nearestFew(this.px, this.py, branch === "a" ? 2 : 1);
+      for (const enemy of targets) {
+        enemy.mark = branch === "a" ? 6 : 4.2;
+        this.puff(enemy.x, enemy.y, "#db0007", 8, 50);
+      }
+      this.float(this.px, this.py - 34, name, "#db0007");
+      return;
+    }
+    if (id === "whirl") {
+      const stay = branch === "b" ? 2.6 : 1.6;
+      this.zones.push({
+        x: this.px,
+        y: this.py,
+        r: branch === "a" ? 176 : 124,
+        life: stay,
+        span: stay,
+        tick: 0,
+        dmg: 8,
+        slow: true,
+        pull: true,
+        follow: false,
+        fx: "whirl",
+      });
+      this.puff(this.px, this.py, "#9b6bff", 14, 100);
+      this.float(this.px, this.py - 34, name, "#7b3fe4");
+    }
+  }
+
+  private shove(x: number, y: number, radius: number, push: number, slow: number, root = 0) {
+    for (const enemy of this.enemies) {
+      const dist = Math.hypot(enemy.x - x, enemy.y - y);
+      if (dist > radius + enemy.r || dist === 0) continue;
+      const next = this.collide(enemy.x + ((enemy.x - x) / dist) * push, enemy.y + ((enemy.y - y) / dist) * push, enemy.r);
+      enemy.x = next.x;
+      enemy.y = next.y;
+      if (slow > 0) enemy.slow = Math.max(enemy.slow, slow);
+      if (root > 0) enemy.root = Math.max(enemy.root, root);
+    }
+  }
+
   private fireBasic(target: Enemy) {
-    this.shots.push({
-      x: this.px,
-      y: this.py,
-      vx: (target.x - this.px) / length(target.x - this.px, target.y - this.py) * 420,
-      vy: (target.y - this.py) / length(target.x - this.px, target.y - this.py) * 420,
-      r: 5,
-      dmg: 6 + this.rageBonus(),
-      life: 1.2,
-      good: true,
-      pierce: 0,
-      hit: new Set(),
-      kind: "basic",
-      splitGen: 0,
-      homing: 0,
-    });
+    const twin = this.slot("twin");
+    const count = twin ? twin.rank + 1 : 1;
+    const lock = this.slot("lock");
+    const base = Math.atan2(target.y - this.py, target.x - this.px);
+    for (let i = 0; i < count; i += 1) {
+      const offset = count === 1 ? 0 : (i - (count - 1) / 2) * 0.18;
+      const angle = base + offset;
+      this.shots.push(this.bolt({
+        x: this.px,
+        y: this.py,
+        vx: Math.cos(angle) * 420,
+        vy: Math.sin(angle) * 420,
+        r: 5,
+        dmg: 6 + this.rageBonus(),
+        life: 8,
+        good: true,
+        pierce: this.slot("cod")?.rank ?? 0,
+        hit: new Set(),
+        kind: "basic",
+        splitGen: 0,
+        homing: lock ? (lock.rank >= 3 ? 6 : lock.rank) : 0,
+      }));
+    }
     this.sfx.shoot();
   }
 
-  private fireOrb(dual: boolean) {
+  private fireOrb(mode: "single" | "triple" | "heavy") {
     const target = this.nearest(this.px, this.py);
-    if (!target) return;
-    for (const offset of dual ? [-22, 22] : [0]) {
-      this.shots.push({
-        x: target.x + offset,
-        y: Math.max(12, target.y - 110),
+    const aim = target ?? { x: this.px + Math.cos(this.face) * 140, y: this.py + Math.sin(this.face) * 140 };
+    const spots = mode === "triple" ? [-36, 0, 36] : [0];
+    for (const offset of spots) {
+      this.shots.push(this.bolt({
+        x: aim.x + offset,
+        y: Math.max(12, aim.y - 140),
         vx: 0,
-        vy: 320,
-        r: 11,
-        dmg: 10 + this.orbBonus() + this.rageBonus(),
-        life: 0.7,
+        vy: 460,
+        r: mode === "heavy" ? 18 : 13,
+        dmg: (mode === "heavy" ? 32 : 20) + this.rageBonus(),
+        life: 8,
         good: true,
         pierce: 0,
         hit: new Set(),
@@ -956,18 +1161,53 @@ export class Battle {
         splitGen: 0,
         homing: 0,
         fx: "nugget",
-      });
+      }));
     }
   }
 
+  private orbitBalls() {
+    const balls: Array<{ x: number; y: number; dmg: number; explode: boolean; heavy: boolean; slow: boolean }> = [];
+    const mac = this.slot("orbit");
+    if (mac) {
+      for (let index = 0; index < mac.rank; index += 1) {
+        const angle = this.orbitAngle + (Math.PI * 2 * index) / mac.rank;
+        balls.push({
+          x: this.px + Math.cos(angle) * 52,
+          y: this.py + Math.sin(angle) * 52,
+          dmg: 10 + this.rageBonus(),
+          explode: mac.rank >= 3,
+          heavy: false,
+          slow: true,
+        });
+      }
+    }
+    const heavy = this.slot("orbDmg");
+    if (heavy) {
+      for (let index = 0; index < heavy.rank; index += 1) {
+        const angle = -this.orbitAngle * 0.72 + (Math.PI * 2 * index) / heavy.rank;
+        balls.push({
+          x: this.px + Math.cos(angle) * 86,
+          y: this.py + Math.sin(angle) * 86,
+          dmg: 16 + this.rageBonus(),
+          explode: false,
+          heavy: true,
+          slow: false,
+        });
+      }
+    }
+    return balls;
+  }
+
   private orbitPoints() {
-    const owned = this.slot("orbit");
-    if (!owned && this.giftOrbit <= 0) return [];
-    const count = owned?.branch === "a" ? 2 : 1;
-    return Array.from({ length: count }, (_, index) => {
-      const angle = this.orbitAngle + (Math.PI * 2 * index) / count;
-      return { x: this.px + Math.cos(angle) * 54, y: this.py + Math.sin(angle) * 54 };
-    });
+    return this.orbitBalls().map((ball) => ({ x: ball.x, y: ball.y }));
+  }
+
+  private turretChance() {
+    if (this.endless) return 0.3;
+    if (this.wave <= 2 || this.wave === 5) return 0;
+    if (this.wave <= 4) return 0.12;
+    if (this.wave <= 6) return 0.22;
+    return 0.35;
   }
 
   private spawn(dt: number) {
@@ -982,7 +1222,7 @@ export class Battle {
       this.enemies.push(this.makeElite());
     } else if (this.leftNormal > 0) {
       this.leftNormal -= 1;
-      this.enemies.push(this.makeEnemy(false, Math.random() < 0.35 ? "turret" : "walker"));
+      this.enemies.push(this.makeEnemy(false, Math.random() < this.turretChance() ? "turret" : "walker"));
     }
     this.spawnCd = 0.72;
   }
@@ -1013,6 +1253,18 @@ export class Battle {
       trick: null,
       minion: false,
       pace: this.endless ? Math.min(1.55, 1 + Math.max(0, this.endlessWave - 1) * 0.05) : 1,
+      steer: 0,
+      root: 0,
+      burn: 0,
+      burnDmg: 0,
+      burnTick: 0,
+      mark: 0,
+      haul: 0,
+      hx: 0,
+      hy: 0,
+      hasWay: false,
+      wayX: 0,
+      wayY: 0,
     };
   }
 
@@ -1027,10 +1279,15 @@ export class Battle {
 
   private makeBoss() {
     const tricks = ["nova", "split", "bomb", "dash"] as const;
-    const trick = this.wave === 10 && !this.endless ? "nova" : tricks[this.bossCursor % tricks.length];
-    if (!(this.wave === 10 && !this.endless)) this.bossCursor += 1;
+    const mid = this.wave === 5 && !this.endless;
+    const trick = this.wave === 10 && !this.endless ? "nova" : mid ? "dash" : tricks[this.bossCursor % tricks.length];
+    if (!(this.wave === 10 && !this.endless) && !mid) this.bossCursor += 1;
     const enemy = this.makeEnemy(true, "boss");
     enemy.trick = trick;
+    if (mid) {
+      enemy.hp = enemy.max = 280;
+      enemy.r = 24;
+    }
     return enemy;
   }
 
@@ -1069,8 +1326,8 @@ export class Battle {
     const source = pool.length >= 4 ? pool : skills.map((skill) => skill.id).filter((id) => this.offerable(id));
     const shuffled = [...source].sort(() => Math.random() - 0.5);
     const picked: SkillId[] = [];
-    for (const school of ["orb", "tank", "spell"] as const) {
-      const found = shuffled.find((id) => skillById[id].school === school && !picked.includes(id));
+    for (const kind of ["技能", "增益", "神器"] as const) {
+      const found = shuffled.find((id) => skillById[id].kind === kind && !picked.includes(id));
       if (found) picked.push(found);
     }
     for (const id of shuffled) {
@@ -1082,8 +1339,8 @@ export class Battle {
 
   private offerable(id: SkillId) {
     const slot = this.slot(id);
-    if (!slot) return this.slots.some((item) => !item);
-    if (skillById[id].kind === "被动") return slot.rank < 3;
+    if (!slot) return skillById[id].kind === "神器" || this.slots.some((item) => !item);
+    if (skillById[id].kind !== "技能") return slot.rank < 3;
     return !slot.branch;
   }
 
@@ -1108,11 +1365,24 @@ export class Battle {
           shot.vy = Math.sin(angle) * 420;
         }
       }
-      shot.x += shot.vx * dt;
-      shot.y += shot.vy * dt;
+      const stepX = shot.vx * dt;
+      const stepY = shot.vy * dt;
+      shot.x += stepX;
+      shot.y += stepY;
       shot.life -= dt;
+      shot.flown = (shot.flown ?? 0) + Math.hypot(stepX, stepY);
+      if (shot.fx === "wing" && !shot.back && (shot.flown ?? 0) > 280) {
+        shot.vx *= -1;
+        shot.vy *= -1;
+        shot.back = true;
+        shot.hit.clear();
+      }
+      if (shot.fx === "wing" && shot.back && Math.hypot(shot.x - this.px, shot.y - this.py) < 20 && (shot.flown ?? 0) > 320) shot.life = 0;
       this.trail(shot);
-      if (this.blocked(shot.x, shot.y, shot.r) || shot.x < 0 || shot.y < 0 || shot.x > W || shot.y > H) shot.life = 0;
+      if (this.blocked(shot.x, shot.y, shot.r) || shot.x < shot.r || shot.y < shot.r || shot.x > W - shot.r || shot.y > H - shot.r) {
+        this.rebound(shot, dt);
+      }
+      if (shot.life <= 0) continue;
       if (!shot.good) {
         if (Math.hypot(shot.x - this.px, shot.y - this.py) < shot.r + 16) {
           this.hurt(shot.dmg);
@@ -1125,7 +1395,29 @@ export class Battle {
         if (Math.hypot(shot.x - enemy.x, shot.y - enemy.y) > shot.r + enemy.r) continue;
         shot.hit.add(enemy.id);
         this.hitEnemy(enemy, shot.dmg);
-        if (shot.chill) enemy.slow = Math.max(enemy.slow, 0.8);
+        if (shot.fx === "fries") enemy.slow = Math.max(enemy.slow, 1);
+        if (shot.snare) enemy.root = Math.max(enemy.root, shot.snare);
+        if (!shot.fx && shot.kind === "basic") {
+          const glaze = this.slot("glaze");
+          if (glaze) enemy.slow = Math.max(enemy.slow, 0.45 + 0.3 * glaze.rank);
+          const ash = this.slot("ash");
+          if (ash) {
+            enemy.burn = Math.max(enemy.burn, 2.2);
+            enemy.burnDmg = 2 + ash.rank * 2;
+            enemy.burnTick = 0.1;
+          }
+        }
+        if (shot.fx === "cheese") {
+          const angle = Math.atan2(this.py - enemy.y, this.px - enemy.x);
+          const dist = Math.hypot(this.px - enemy.x, this.py - enemy.y);
+          const pull = Math.min(Math.max(0, dist - 42), shot.pull ?? 160);
+          enemy.hx = enemy.x + Math.cos(angle) * pull;
+          enemy.hy = enemy.y + Math.sin(angle) * pull;
+          enemy.haul = 0.7;
+          enemy.root = Math.max(enemy.root, (shot.snare ?? 0.55) + 0.28);
+          this.puff(enemy.x, enemy.y, "#ffbc0d", 8, 50);
+        }
+        if (shot.fx === "nugget") this.pulse(enemy.x, enemy.y, 46, Math.max(6, shot.dmg * 0.4));
         if (shot.kind === "orb") {
           this.afterOrb(shot, enemy);
           this.bounceFrom(shot, enemy);
@@ -1135,32 +1427,40 @@ export class Battle {
         break;
       }
     }
-    for (const point of this.orbitPoints()) {
+    for (const ball of this.orbitBalls()) {
       for (const enemy of this.enemies) {
         if (enemy.orbCd > 0) continue;
-        if (Math.hypot(point.x - enemy.x, point.y - enemy.y) > 12 + enemy.r) continue;
+        if (Math.hypot(ball.x - enemy.x, ball.y - enemy.y) > 14 + enemy.r) continue;
         enemy.orbCd = 0.35;
-        this.hitEnemy(enemy, 8 + this.orbBonus() + this.rageBonus());
-        if (this.slot("orbit")?.branch === "b") this.pulse(point.x, point.y, 36, 6);
+        this.hitEnemy(enemy, ball.dmg);
+        if (ball.slow) enemy.slow = Math.max(enemy.slow, 0.7);
+        const touch = this.touchShot(ball.x, ball.y, ball.dmg);
+        this.afterOrb(touch, enemy);
+        this.bounceFrom(touch, enemy);
+        if (ball.explode) this.pulse(ball.x, ball.y, 40, 8);
       }
     }
     this.shots = this.shots.filter((shot) => shot.life > 0);
   }
 
+  private touchShot(x: number, y: number, dmg: number): Shot {
+    return { x, y, vx: 0, vy: 0, r: 8, dmg, life: 1, good: true, pierce: 0, hit: new Set(), kind: "orb", splitGen: 0, homing: 0 };
+  }
+
   private afterOrb(shot: Shot, enemy: Enemy) {
     const split = this.slot("split");
-    if (!split || shot.splitGen > (split.branch === "b" ? 1 : 0)) return;
-    const count = split.branch === "a" ? 3 : 2;
+    if (!split || shot.splitGen > (split.rank >= 3 ? 1 : 0)) return;
+    const count = split.rank >= 2 ? 3 : 2;
     for (let i = 0; i < count; i += 1) {
       const angle = (Math.PI * 2 * i) / count;
-      this.shots.push({
+      this.shots.push(this.bolt({
         x: enemy.x,
         y: enemy.y,
         vx: Math.cos(angle) * 220,
         vy: Math.sin(angle) * 220,
         r: 6,
         dmg: 5,
-        life: 0.7,
+        life: 8,
         good: true,
         pierce: 0,
         hit: new Set([enemy.id]),
@@ -1168,13 +1468,63 @@ export class Battle {
         splitGen: shot.splitGen + 1,
         homing: 0,
         fx: "fillet",
-      });
+      }));
     }
+  }
+
+  private rebound(shot: Shot, dt: number) {
+    const walls = shot.wall ?? 0;
+    if (walls <= 0) {
+      shot.life = 0;
+      return;
+    }
+    shot.wall = walls - 1;
+    const prevX = shot.x - shot.vx * dt;
+    const prevY = shot.y - shot.vy * dt;
+    const hitX = shot.x < shot.r || shot.x > W - shot.r || this.blocked(shot.x, prevY, shot.r * 0.6);
+    const hitY = shot.y < shot.r || shot.y > H - shot.r || this.blocked(prevX, shot.y, shot.r * 0.6);
+    if (hitX) shot.vx *= -1;
+    if (hitY) shot.vy *= -1;
+    if (!hitX && !hitY) {
+      shot.vx *= -1;
+      shot.vy *= -1;
+    }
+    shot.x = Math.max(shot.r + 1, Math.min(W - shot.r - 1, prevX));
+    shot.y = Math.max(shot.r + 1, Math.min(H - shot.r - 1, prevY));
+    shot.hit.clear();
   }
 
   private updateZones(dt: number) {
     for (const zone of this.zones) {
       zone.life -= dt;
+      if (zone.follow) {
+        zone.x = this.px;
+        zone.y = this.py;
+      }
+      if (zone.fx === "whirl" || zone.fx === "pie" || zone.fx === "sauce") {
+        const angle = this.orbitAngle * 4 + zone.x;
+        this.bits.push({
+          x: zone.x + Math.cos(angle) * zone.r * 0.7,
+          y: zone.y + Math.sin(angle) * zone.r * 0.7,
+          vx: Math.cos(angle) * 20,
+          vy: Math.sin(angle) * 20,
+          life: 0.25,
+          color: zone.fx === "whirl" ? "#c4b5fd" : zone.fx === "pie" ? "#e7b043" : "#c48a4a",
+          size: 3,
+        });
+      }
+      if (zone.pull) {
+        for (const enemy of this.enemies) {
+          const dx = zone.x - enemy.x;
+          const dy = zone.y - enemy.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist > zone.r + enemy.r || dist < 10) continue;
+          const step = Math.min(dist - 10, 110 * dt);
+          const next = this.collide(enemy.x + (dx / dist) * step, enemy.y + (dy / dist) * step, enemy.r);
+          enemy.x = next.x;
+          enemy.y = next.y;
+        }
+      }
       zone.tick -= dt;
       if (zone.tick > 0) continue;
       zone.tick = zone.once ? 99 : 0.4;
@@ -1187,10 +1537,114 @@ export class Battle {
     this.zones = this.zones.filter((zone) => zone.life > 0);
   }
 
+  private lineBlock(x1: number, y1: number, x2: number, y2: number, r: number) {
+    const dist = Math.hypot(x2 - x1, y2 - y1);
+    const steps = Math.max(1, Math.ceil(dist / 10));
+    for (let i = 1; i <= steps; i += 1) {
+      const t = i / steps;
+      const x = x1 + (x2 - x1) * t;
+      const y = y1 + (y2 - y1) * t;
+      const hit = this.blocks.find((block) => circleHits(x, y, r * 0.7, block));
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  private clearLine(x1: number, y1: number, x2: number, y2: number, r: number) {
+    const dist = Math.hypot(x2 - x1, y2 - y1);
+    const steps = Math.max(1, Math.ceil(dist / 10));
+    for (let i = 1; i <= steps; i += 1) {
+      const t = i / steps;
+      const x = x1 + (x2 - x1) * t;
+      const y = y1 + (y2 - y1) * t;
+      if (this.blocks.some((block) => circleHits(x, y, r * 0.7, block))) return false;
+    }
+    return true;
+  }
+
+  private walkPoint(x: number, y: number, r: number) {
+    const clamp = (px: number, py: number) => ({
+      x: Math.max(r + 8, Math.min(W - r - 8, px)),
+      y: Math.max(r + 8, Math.min(H - r - 8, py)),
+    });
+    const point = clamp(x, y);
+    if (!this.blocked(point.x, point.y, r)) return point;
+    for (const dist of [18, 36, 54, 72]) {
+      for (let i = 0; i < 8; i += 1) {
+        const angle = (Math.PI * 2 * i) / 8;
+        const next = clamp(x + Math.cos(angle) * dist, y + Math.sin(angle) * dist);
+        if (!this.blocked(next.x, next.y, r)) return next;
+      }
+    }
+    return point;
+  }
+
+  private stepChase(enemy: Enemy, speed: number, dt: number) {
+    const step = speed * dt;
+    if (this.clearLine(enemy.x, enemy.y, this.px, this.py, enemy.r)) {
+      enemy.hasWay = false;
+      const direct = Math.atan2(this.py - enemy.y, this.px - enemy.x);
+      const next = this.collide(enemy.x + Math.cos(direct) * step, enemy.y + Math.sin(direct) * step, enemy.r);
+      enemy.x = next.x;
+      enemy.y = next.y;
+      return;
+    }
+    if (!enemy.hasWay || Math.hypot(enemy.x - enemy.wayX, enemy.y - enemy.wayY) < 14) {
+      const block = this.lineBlock(enemy.x, enemy.y, this.px, this.py, enemy.r);
+      if (block) {
+        const pad = enemy.r + 12;
+        const corners = [
+          this.walkPoint(block.x - pad, block.y - pad, enemy.r),
+          this.walkPoint(block.x + block.w + pad, block.y - pad, enemy.r),
+          this.walkPoint(block.x - pad, block.y + block.h + pad, enemy.r),
+          this.walkPoint(block.x + block.w + pad, block.y + block.h + pad, enemy.r),
+        ];
+        const seen = corners.filter((point) => this.clearLine(enemy.x, enemy.y, point.x, point.y, 5));
+        const pool = (seen.length ? seen : corners).sort((a, b) => {
+          const cost = (point: { x: number; y: number }) => Math.hypot(point.x - enemy.x, point.y - enemy.y) + Math.hypot(this.px - point.x, this.py - point.y);
+          return cost(a) - cost(b);
+        });
+        const open = pool.filter((point) => Math.hypot(point.x - enemy.x, point.y - enemy.y) > 36);
+        const pick = (open.length ? open : pool)[Math.abs(enemy.steer) % (open.length ? open.length : pool.length)];
+        enemy.wayX = pick.x;
+        enemy.wayY = pick.y;
+        enemy.hasWay = true;
+      }
+    }
+    const aimX = enemy.hasWay ? enemy.wayX : this.px;
+    const aimY = enemy.hasWay ? enemy.wayY : this.py;
+    const angle = Math.atan2(aimY - enemy.y, aimX - enemy.x);
+    const next = this.collide(enemy.x + Math.cos(angle) * step, enemy.y + Math.sin(angle) * step, enemy.r);
+    if (Math.hypot(next.x - enemy.x, next.y - enemy.y) < step * 0.3) {
+      enemy.steer += 1;
+      enemy.hasWay = false;
+    }
+    enemy.x = next.x;
+    enemy.y = next.y;
+  }
+
   private updateEnemies(dt: number) {
     for (const enemy of this.enemies) {
       enemy.flash = Math.max(0, enemy.flash - dt);
       enemy.slow = Math.max(0, enemy.slow - dt);
+      enemy.root = Math.max(0, enemy.root - dt);
+      enemy.mark = Math.max(0, enemy.mark - dt);
+      if (enemy.burn > 0) {
+        enemy.burn -= dt;
+        enemy.burnTick -= dt;
+        if (enemy.burnTick <= 0) {
+          enemy.burnTick = 0.45;
+          this.hitEnemy(enemy, enemy.burnDmg);
+        }
+      }
+      if (enemy.haul > 0) {
+        const step = Math.min(1, dt / Math.max(0.02, enemy.haul));
+        enemy.x += (enemy.hx - enemy.x) * step;
+        enemy.y += (enemy.hy - enemy.y) * step;
+        enemy.haul = Math.max(0, enemy.haul - dt);
+        this.bits.push({ x: enemy.x, y: enemy.y, vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40, life: 0.22, color: "#ffbc0d", size: 3 });
+      }
+      if (enemy.root > 0 || enemy.haul > 0) continue;
       enemy.orbCd = Math.max(0, enemy.orbCd - dt);
       enemy.cd -= dt;
       enemy.skillCd = Math.max(0, enemy.skillCd - dt);
@@ -1208,10 +1662,7 @@ export class Battle {
         enemy.dashAngle = Math.atan2(this.py - enemy.y, this.px - enemy.x);
       } else if (enemy.kind === "walker" || enemy.kind === "boss") {
         const speed = (enemy.kind === "boss" ? 62 : enemy.elite ? 100 : 80) * slow * enemy.pace;
-        const angle = Math.atan2(this.py - enemy.y, this.px - enemy.x);
-        const next = this.collide(enemy.x + Math.cos(angle) * speed * dt, enemy.y + Math.sin(angle) * speed * dt, enemy.r);
-        enemy.x = next.x;
-        enemy.y = next.y;
+        this.stepChase(enemy, speed, dt);
         if (Math.hypot(enemy.x - this.px, enemy.y - this.py) < enemy.r + 16 && enemy.cd <= 0) {
           enemy.cd = 0.5;
           this.hurt(enemy.kind === "boss" ? 18 : enemy.elite ? 16 : 10);
@@ -1295,15 +1746,10 @@ export class Battle {
       this.hp -= left;
       this.iframe = 0.45;
       this.hurtCd = 0.12;
-      this.coffeeHurt = true;
       this.sfx.hurt();
       if (prefs.shake) this.shake = 0.08;
       this.juice(left);
     }
-  }
-
-  private orbBonus() {
-    return (this.slot("orbDmg")?.rank ?? 0) * 4;
   }
 
   private rageBonus() {
@@ -1330,20 +1776,20 @@ export class Battle {
     const bounce = this.slot("bounce");
     if (!bounce) return;
     const jumps = shot.jump ?? 0;
-    if (jumps >= (bounce.branch === "a" ? 2 : 1)) return;
+    if (jumps >= (bounce.rank >= 2 ? 2 : 1)) return;
     const next = this.enemies
       .filter((other) => other !== enemy && other.hp > 0)
       .sort((a, b) => Math.hypot(a.x - enemy.x, a.y - enemy.y) - Math.hypot(b.x - enemy.x, b.y - enemy.y))[0];
     if (!next || Math.hypot(next.x - enemy.x, next.y - enemy.y) > 240) return;
     const angle = Math.atan2(next.y - enemy.y, next.x - enemy.x);
-    this.shots.push({
+    this.shots.push(this.bolt({
       x: enemy.x,
       y: enemy.y,
       vx: Math.cos(angle) * 260,
       vy: Math.sin(angle) * 260,
       r: 8,
-      dmg: bounce.branch === "b" ? shot.dmg : 7,
-      life: 0.7,
+      dmg: bounce.rank >= 3 ? shot.dmg : 7,
+      life: 8,
       good: true,
       pierce: 0,
       hit: new Set([enemy.id]),
@@ -1352,13 +1798,13 @@ export class Battle {
       homing: 0,
       fx: "double",
       jump: jumps + 1,
-    });
+    }));
   }
 
   private trail(shot: Shot) {
-    const spray = shot.kind === "soda" || shot.fx === "fries" || shot.fx === "wasabi" || shot.fx === "nugget";
-    if (!spray || Math.random() > 0.7) return;
-    const color = shot.kind === "soda" ? "#d7f4ff" : shot.fx === "wasabi" ? "#8fd14f" : shot.fx === "fries" ? "#ffbc0d" : "#f0c14a";
+    const spray = shot.kind === "soda" || shot.fx === "fries" || shot.fx === "wasabi" || shot.fx === "nugget" || shot.fx === "cheese";
+    if (!spray || (shot.fx !== "cheese" && Math.random() > 0.7)) return;
+    const color = shot.kind === "soda" ? "#d7f4ff" : shot.fx === "wasabi" ? "#8fd14f" : shot.fx === "cheese" ? "#ffbc0d" : shot.fx === "fries" ? "#ffbc0d" : "#f0c14a";
     this.bits.push({
       x: shot.x,
       y: shot.y,
@@ -1373,23 +1819,29 @@ export class Battle {
   private juice(amount: number) {
     const juice = this.slot("juice");
     if (!juice) return;
-    const line = juice.branch === "a" ? 0.65 : 0.5;
+    const line = juice.rank >= 2 ? 0.65 : 0.5;
     if (this.hp / this.maxHp > line || this.juiceCd > 0) return;
     this.juicePool += amount;
     if (this.juicePool < 15) return;
     this.juicePool = 0;
     this.juiceCd = 3;
-    const heal = juice.branch === "b" ? 14 : 8;
+    const heal = juice.rank >= 3 ? 16 : 8;
     this.hp = Math.min(this.maxHp, this.hp + heal);
     this.float(this.px, this.py - 28, `+${heal}`, "#db0007");
     this.sfx.heal();
   }
 
   private hitEnemy(enemy: Enemy, amount: number) {
-    enemy.hp -= amount;
+    if (enemy.hp <= 0) return;
+    let dmg = amount * (1 + (this.slot("might")?.rank ?? 0) * 0.12);
+    if (enemy.mark > 0) dmg *= this.slot("brand")?.branch === "b" ? 2 : 1.5;
+    const crit = this.slot("crit");
+    const isCrit = Boolean(crit && Math.random() < 0.12 * crit.rank);
+    if (isCrit) dmg *= 2;
+    enemy.hp -= dmg;
     enemy.flash = 0.12;
     this.pops.push({ x: enemy.x, y: enemy.y, life: 0.22 });
-    this.float(enemy.x, enemy.y - enemy.r - 8, String(Math.round(amount)), "#2d2d2d");
+    this.float(enemy.x, enemy.y - enemy.r - 8, String(Math.round(dmg)), isCrit ? "#db0007" : "#2d2d2d", isCrit ? 28 : 18);
     this.burst(enemy.x, enemy.y, "#ffbc0d");
     this.sfx.hit();
     if (enemy.hp <= 0) this.kill(enemy);
@@ -1400,7 +1852,11 @@ export class Battle {
       this.drops.push({ x: enemy.x, y: enemy.y, kind: "gold", amount: 1 });
       return;
     }
-    if (enemy.trick === "boom") this.boom(enemy.x, enemy.y, enemy.kind === "boss" ? 110 : 74, enemy.kind === "boss" ? 18 : 12);
+    if (enemy.kind === "boss" && (enemy.trick === "bomb" || enemy.trick === "nova")) this.ringShots(enemy.x, enemy.y, 12, 14);
+    if (enemy.trick === "boom") {
+      this.boom(enemy.x, enemy.y, 74, 12);
+      if (this.wave >= 7 || this.endless) this.ringShots(enemy.x, enemy.y, 8, 8);
+    }
     if (enemy.trick === "split") {
       for (const side of [-1, 1]) {
         const baby = this.makeEnemy(enemy.kind === "boss", "walker");
@@ -1417,16 +1873,58 @@ export class Battle {
     const gold = enemy.kind === "boss" ? 25 : enemy.elite ? 5 : 2;
     this.drops.push({ x: enemy.x, y: enemy.y, kind: "gold", amount: gold });
     const roll = Math.random();
-    const spot = { x: enemy.x + 14, y: enemy.y };
-    if (enemy.kind === "boss" || roll < (enemy.elite ? 0.45 : 0.22)) this.drops.push({ ...spot, kind: "heal", amount: 28 });
-    else if (roll < (enemy.elite ? 0.7 : 0.34)) this.drops.push({ ...spot, kind: "shield", amount: 24 });
+    const spot = { x: enemy.x + 16, y: enemy.y };
+    const gen = this.slot("gen")?.rank ?? 0;
+    const spellChance = (enemy.kind === "boss" ? 1 : enemy.elite ? 0.48 : 0.24) + gen * 0.08;
+    const spelled = this.dropSpell(spot.x, spot.y, spellChance);
+    if (enemy.kind === "boss" || roll < (enemy.elite ? 0.45 : 0.22)) this.drops.push({ x: enemy.x - 16, y: enemy.y, kind: "heal", amount: 28 });
+    else if (!spelled && roll < (enemy.elite ? 0.7 : 0.38)) this.drops.push({ x: enemy.x - 16, y: enemy.y, kind: "shield", amount: 24 });
+  }
+
+  private ringShots(x: number, y: number, count: number, dmg: number) {
+    for (let i = 0; i < count; i += 1) {
+      const angle = (Math.PI * 2 * i) / count;
+      this.shots.push({
+        x,
+        y,
+        vx: Math.cos(angle) * 160,
+        vy: Math.sin(angle) * 160,
+        r: 5,
+        dmg,
+        life: 8,
+        good: false,
+        pierce: 0,
+        hit: new Set(),
+        kind: "basic",
+        splitGen: 0,
+        homing: 0,
+      });
+    }
+  }
+
+  private dropSpell(x: number, y: number, chance: number) {
+    const spells = this.unlockedSpells();
+    if (!spells.length || Math.random() > chance) return false;
+    const skill = spells[Math.floor(Math.random() * spells.length)];
+    this.drops.push({ x, y, kind: "spell", amount: 0, skill });
+    return true;
   }
 
   private spawnField() {
+    let spot = { x: 120, y: 270 };
+    for (let i = 0; i < 12; i += 1) {
+      const next = { x: 70 + Math.random() * (W - 140), y: 70 + Math.random() * (H - 140) };
+      spot = next;
+      if (!this.blocked(next.x, next.y, 18)) break;
+    }
+    const hasSpell = this.unlockedSpells().length > 0;
+    if (this.dropSpell(spot.x, spot.y, hasSpell ? 1 : 0)) {
+      if (this.has("drops")) this.burst(spot.x, spot.y, "#7dbe3a");
+      return;
+    }
     const roll = Math.random();
-    const spot = { x: 80 + Math.random() * (W - 160), y: 80 + Math.random() * (H - 160) };
-    if (roll < 0.4) this.drops.push({ ...spot, kind: "heal", amount: 28 });
-    else if (roll < 0.65) this.drops.push({ ...spot, kind: "shield", amount: 24 });
+    if (roll < 0.45) this.drops.push({ ...spot, kind: "heal", amount: 28 });
+    else if (roll < 0.72) this.drops.push({ ...spot, kind: "shield", amount: 24 });
     else this.drops.push({ ...spot, kind: "gold", amount: 6 });
     if (this.has("drops")) this.burst(spot.x, spot.y, "#7dbe3a");
   }
@@ -1466,6 +1964,9 @@ export class Battle {
     } else if (drop.kind === "shield") {
       this.shield = Math.max(this.shield, this.shieldValue(drop.amount));
       this.sfx.shield();
+    } else if (drop.kind === "spell" && drop.skill && this.has(drop.skill)) {
+      this.release(drop.skill);
+      this.sfx.pick();
     }
   }
 
@@ -1483,21 +1984,23 @@ export class Battle {
     }
   }
 
-  private float(x: number, y: number, text: string, color: string) {
-    this.floaters.push({ x, y, text, life: 0.7, color });
+  private float(x: number, y: number, text: string, color: string, size = 18) {
+    this.floaters.push({ x, y, text, life: 0.7, color, size });
+  }
+
+  private aimAt() {
+    const target = this.nearest(this.px, this.py);
+    if (!target) return this.face;
+    this.face = Math.atan2(target.y - this.py, target.x - this.px);
+    return this.face;
   }
 
   private nearest(x: number, y: number) {
-    let best: Enemy | null = null;
-    let dist = Infinity;
-    for (const enemy of this.enemies) {
-      const d = Math.hypot(enemy.x - x, enemy.y - y);
-      if (d < dist) {
-        dist = d;
-        best = enemy;
-      }
-    }
-    return best;
+    return this.nearestFew(x, y, 1)[0] ?? null;
+  }
+
+  private nearestFew(x: number, y: number, count: number) {
+    return [...this.enemies].sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y)).slice(0, count);
   }
 
   private blocked(x: number, y: number, r: number) {
@@ -1528,7 +2031,6 @@ export class Battle {
       if (sprite?.complete && sprite.naturalWidth > 0) ctx.drawImage(sprite, item.x - 4, item.y - 4);
     }
     for (const zone of this.zones) this.drawZone(zone);
-    for (const drop of this.drops) this.drawDrop(drop);
     for (const bomb of this.bombs) {
       ctx.beginPath();
       ctx.strokeStyle = "#ff8a00";
@@ -1538,8 +2040,9 @@ export class Battle {
     }
     for (const enemy of this.enemies) this.drawEnemy(enemy);
     for (const shot of this.shots) this.drawShot(shot);
+    for (const drop of this.drops) this.drawDrop(drop);
     for (const pop of this.pops) paintFx(ctx, "fx/fx-hit.png", pop.x, pop.y, 36 + (0.22 - pop.life) * 90, 36 + (0.22 - pop.life) * 90);
-    for (const point of this.orbitPoints()) drawBurger(ctx, point.x, point.y);
+    for (const ball of this.orbitBalls()) drawBurger(this.ctx, ball.x, ball.y, ball.heavy ? 1.4 : 1, ball.heavy);
     this.drawPlayer();
     for (const bit of this.bits) {
       ctx.globalAlpha = Math.max(0, bit.life * 3);
@@ -1549,10 +2052,10 @@ export class Battle {
       ctx.fill();
       ctx.globalAlpha = 1;
     }
-    ctx.font = "700 18px Fredoka, sans-serif";
     ctx.textAlign = "center";
     for (const floater of this.floaters) {
-      ctx.lineWidth = 4;
+      ctx.font = `700 ${floater.size}px Fredoka, sans-serif`;
+      ctx.lineWidth = floater.size > 22 ? 6 : 4;
       ctx.strokeStyle = "#fff";
       ctx.strokeText(floater.text, floater.x, floater.y - (0.7 - floater.life) * 28);
       ctx.fillStyle = floater.color;
@@ -1702,6 +2205,24 @@ export class Battle {
       ctx.restore();
       return;
     }
+    if (zone.fx === "whirl") {
+      ctx.save();
+      ctx.translate(zone.x, zone.y);
+      ctx.rotate(this.orbitAngle * 3);
+      ctx.strokeStyle = "rgba(123,63,228,.85)";
+      ctx.lineWidth = 4;
+      for (let i = 0; i < 3; i += 1) {
+        ctx.beginPath();
+        ctx.arc(0, 0, zone.r * (0.45 + i * 0.18), i, i + 1.4);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.beginPath();
+      ctx.fillStyle = "rgba(123,63,228,.16)";
+      ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
     ctx.beginPath();
     ctx.fillStyle = zone.slow ? "rgba(255,188,13,.28)" : "rgba(219,0,7,.16)";
     ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI * 2);
@@ -1723,13 +2244,6 @@ export class Battle {
       return;
     }
     if (shot.fx === "nugget") {
-      if (this.has("orbDmg")) {
-        ctx.beginPath();
-        ctx.strokeStyle = "#db0007";
-        ctx.lineWidth = 2;
-        ctx.arc(shot.x, shot.y, 16, 0, Math.PI * 2);
-        ctx.stroke();
-      }
       drawNugget(ctx, shot);
       return;
     }
@@ -1747,6 +2261,30 @@ export class Battle {
     }
     if (shot.fx === "patty") {
       drawPatty(ctx, shot);
+      return;
+    }
+    if (shot.fx === "cheese") {
+      ctx.strokeStyle = "#ffbc0d";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(this.px, this.py);
+      ctx.lineTo(shot.x, shot.y);
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(shot.x, shot.y);
+      ctx.rotate(Math.atan2(shot.vy, shot.vx));
+      ctx.strokeStyle = "#ffbc0d";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(-28, 0);
+      ctx.quadraticCurveTo(-8, -8, 10, 0);
+      ctx.quadraticCurveTo(-8, 8, -28, 0);
+      ctx.stroke();
+      ctx.fillStyle = "#fff2b0";
+      ctx.beginPath();
+      ctx.arc(12, 0, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
       return;
     }
     ctx.save();
@@ -1849,6 +2387,27 @@ export class Battle {
   private drawEnemy(enemy: Enemy) {
     const ctx = this.ctx;
     const fill = enemy.flash > 0 ? "#ffffff" : enemy.trick === "boom" || enemy.trick === "bomb" ? "#ff7a18" : "#db0007";
+    if (enemy.mark > 0) {
+      ctx.beginPath();
+      ctx.strokeStyle = "#ffbc0d";
+      ctx.lineWidth = 2;
+      ctx.arc(enemy.x, enemy.y, enemy.r + 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (enemy.burn > 0) {
+      ctx.fillStyle = "#ff7a18";
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y - enemy.r - 4, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (enemy.root > 0) {
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(enemy.x - 6, enemy.y - enemy.r - 8);
+      ctx.lineTo(enemy.x + 6, enemy.y - enemy.r - 8);
+      ctx.stroke();
+    }
     ctx.fillStyle = fill;
     ctx.strokeStyle = enemy.elite || enemy.kind === "boss" ? "#ffbc0d" : "#2d2d2d";
     ctx.lineWidth = enemy.elite || enemy.kind === "boss" ? 4 : 3;
@@ -1907,34 +2466,78 @@ export class Battle {
 
   private drawDrop(drop: Drop) {
     const ctx = this.ctx;
+    const bob = Math.sin(this.orbitAngle * 3 + drop.x * 0.4) * 4;
+    const y = drop.y + bob;
+    ctx.beginPath();
+    ctx.fillStyle = "rgba(255,255,255,.9)";
+    ctx.arc(drop.x, y, drop.kind === "spell" ? 26 : 22, 0, Math.PI * 2);
+    ctx.fill();
     if (drop.kind === "gold") {
       ctx.beginPath();
       ctx.fillStyle = "#ffbc0d";
       ctx.strokeStyle = "#2d2d2d";
-      ctx.lineWidth = 2;
-      ctx.arc(drop.x, drop.y, 8, 0, Math.PI * 2);
+      ctx.lineWidth = 3;
+      ctx.arc(drop.x, y, 16, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.strokeStyle = "#fff6cf";
+      ctx.lineWidth = 2;
+      ctx.arc(drop.x, y, 9, 0, Math.PI * 2);
       ctx.stroke();
       return;
     }
     if (drop.kind === "heal") {
-      roundRect(ctx, drop.x - 8, drop.y - 8, 16, 16, 8, "#ffffff");
-      ctx.strokeStyle = "#db0007";
-      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(drop.x - 4, drop.y);
-      ctx.lineTo(drop.x + 4, drop.y);
-      ctx.moveTo(drop.x, drop.y - 4);
-      ctx.lineTo(drop.x, drop.y + 4);
+      ctx.fillStyle = "#fff";
+      ctx.strokeStyle = "#db0007";
+      ctx.lineWidth = 3;
+      ctx.arc(drop.x, y, 16, 0, Math.PI * 2);
+      ctx.fill();
       ctx.stroke();
+      ctx.strokeStyle = "#db0007";
+      ctx.lineWidth = 5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(drop.x - 8, y);
+      ctx.lineTo(drop.x + 8, y);
+      ctx.moveTo(drop.x, y - 8);
+      ctx.lineTo(drop.x, y + 8);
+      ctx.stroke();
+      ctx.lineCap = "butt";
       return;
     }
     if (drop.kind === "shield") {
-      roundRect(ctx, drop.x - 8, drop.y - 8, 16, 16, 3, "#ffffff");
-      ctx.strokeStyle = "#ffbc0d";
-      ctx.strokeRect(drop.x - 5, drop.y - 5, 10, 10);
+      ctx.beginPath();
+      ctx.fillStyle = "#fff";
+      ctx.strokeStyle = "#2d2d2d";
+      ctx.lineWidth = 3;
+      ctx.arc(drop.x, y, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.fillStyle = "#ffbc0d";
+      ctx.strokeStyle = "#2d2d2d";
+      ctx.lineWidth = 2;
+      ctx.moveTo(drop.x, y - 9);
+      ctx.lineTo(drop.x + 8, y - 5);
+      ctx.lineTo(drop.x + 7, y + 3);
+      ctx.quadraticCurveTo(drop.x, y + 11, drop.x - 7, y + 3);
+      ctx.lineTo(drop.x - 8, y - 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
       return;
     }
+    const skill = drop.skill ? skillById[drop.skill] : null;
+    ctx.beginPath();
+    ctx.fillStyle = "#fff8e0";
+    ctx.strokeStyle = "#db0007";
+    ctx.lineWidth = 3;
+    ctx.arc(drop.x, y, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    if (skill) drawStamp(ctx, skill.image, drop.x, y, 34);
   }
 }
 
@@ -2190,9 +2793,10 @@ function drawFillet(ctx: CanvasRenderingContext2D, shot: Shot) {
   ctx.restore();
 }
 
-function drawBurger(ctx: CanvasRenderingContext2D, x: number, y: number) {
+function drawBurger(ctx: CanvasRenderingContext2D, x: number, y: number, scale = 1, heavy = false) {
   ctx.save();
   ctx.translate(x, y);
+  ctx.scale(scale, scale);
   ctx.fillStyle = "#f2c14e";
   ctx.strokeStyle = "#2d2d2d";
   ctx.lineWidth = 2;
@@ -2200,11 +2804,11 @@ function drawBurger(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.ellipse(0, 6, 12, 5, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  ctx.fillStyle = "#6b3a1f";
+  ctx.fillStyle = heavy ? "#3d1c0c" : "#6b3a1f";
   ctx.fillRect(-10, -2, 20, 6);
-  ctx.fillStyle = "#7dbe3a";
+  ctx.fillStyle = heavy ? "#c4511a" : "#7dbe3a";
   ctx.fillRect(-9, -5, 18, 3);
-  ctx.fillStyle = "#e7b043";
+  ctx.fillStyle = heavy ? "#e07a2f" : "#e7b043";
   ctx.beginPath();
   ctx.ellipse(0, -6, 12, 6, 0, Math.PI, 0);
   ctx.fill();
