@@ -11,7 +11,7 @@ let modal: Modal = "none";
 let tab: "技能" | "神器" = "技能";
 let inspect = 0;
 let branchId: SkillId | null = null;
-let backTo: "" | "pause" | "bag" = "";
+let backTo: "" | "pause" | "bag" | "shop" | "pending" = "";
 let layout: "land" | "port" = "land";
 let root: HTMLElement;
 let slotSig = "";
@@ -259,7 +259,7 @@ function applyLayout() {
 
 export function mountShell(host: HTMLElement) {
   root = host;
-  root.innerHTML = `<section class="stage" data-layout="land" data-screen="battle">
+  root.innerHTML = `<section class="stage" data-layout="land" data-screen="cover">
       <header class="topbar">
         <button class="round" type="button" data-open="settings" aria-label="设置">${icon("gear")}</button>
         <button class="round" type="button" data-open="manual" aria-label="手册">${icon("book")}</button>
@@ -276,6 +276,19 @@ export function mountShell(host: HTMLElement) {
         <div class="shade" id="shade" hidden><button class="backdrop" type="button" data-close aria-label="返回战斗"></button><div id="modal"></div></div>
       </div>
       <div id="hold-tip" class="hold-tip" hidden></div>
+      <div class="cover" id="cover">
+        <div class="cover-slide">
+          <p class="cover-kicker">开餐</p>
+          <h1>麦乐闯关</h1>
+          <p class="cover-line">选一套餐，闯过十关</p>
+          <div class="cover-foods">
+            <img src="menu/1100.png" alt="汉堡">
+            <img src="menu/4810.png" alt="薯条">
+            <img src="menu/9900008751.png" alt="可乐">
+          </div>
+          <button class="btn gold" type="button" data-start>开始闯关</button>
+        </div>
+      </div>
     </section>`;
   const canvas = root.querySelector<HTMLCanvasElement>("#arena");
   if (!canvas) return;
@@ -292,7 +305,6 @@ export function mountShell(host: HTMLElement) {
     }
   };
   battle.start();
-  openModal("meal");
   applyLayout();
   window.addEventListener("resize", applyLayout);
   window.addEventListener("orientationchange", applyLayout);
@@ -413,7 +425,8 @@ export function mountShell(host: HTMLElement) {
 
   root.addEventListener("pointerdown", (event) => {
     unlockAudio();
-    if (modal === "none") bgm.ensure();
+    const cover = root.querySelector<HTMLElement>("#cover");
+    if (modal === "none" && cover?.hidden) bgm.ensure();
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (!target.closest(".meal-items img")) hideHoldTip();
@@ -426,6 +439,12 @@ export function mountShell(host: HTMLElement) {
   root.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    if (target.closest("[data-start]")) {
+      const cover = root.querySelector<HTMLElement>("#cover");
+      if (cover) cover.hidden = true;
+      openModal("meal");
+      return;
+    }
     const mealIcon = target.closest<HTMLImageElement>(".meal-items img");
     if (mealIcon && layout === "port") {
       showHoldTip(mealIcon);
@@ -460,19 +479,9 @@ export function mountShell(host: HTMLElement) {
     const slot = target.closest<HTMLElement>("[data-slot]");
     if (slot?.dataset.slot) {
       inspect = Number(slot.dataset.slot);
-      if (modal === "shop" || modal === "pending") {
-        battle.recycle(inspect);
-        if (modal === "pending" && battle.takePending()) {
-          modal = "none";
-          root.querySelector<HTMLElement>("#shade")!.hidden = true;
-          root.querySelector(".stage")?.setAttribute("data-screen", "battle");
-        } else openModal(modal);
-        return;
-      }
-      if (battle.hud().slots[inspect]) {
-        if (modal === "pause" || modal === "bag") backTo = modal;
-        openModal("skill");
-      }
+      if (!battle.hud().slots[inspect]) return;
+      if (modal === "shop" || modal === "pending" || modal === "pause" || modal === "bag") backTo = modal;
+      openModal("skill");
       return;
     }
     const relic = target.closest<HTMLElement>("[data-relic]");
@@ -484,6 +493,14 @@ export function mountShell(host: HTMLElement) {
     const recycle = target.closest<HTMLElement>("[data-recycle]");
     if (recycle?.dataset.recycle) {
       battle.recycle(Number(recycle.dataset.recycle));
+      if (backTo === "pending" && battle.takePending()) {
+        backTo = "";
+        modal = "none";
+        bgm.ensure();
+        root.querySelector<HTMLElement>("#shade")!.hidden = true;
+        root.querySelector(".stage")?.setAttribute("data-screen", "battle");
+        return;
+      }
       if (backTo) {
         const next = backTo;
         backTo = "";
