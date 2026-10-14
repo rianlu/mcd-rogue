@@ -4,15 +4,59 @@
 
 本项目由参赛者独立开发，不是麦当劳官方产品。不提供点餐、支付或营养建议。餐品名称、价格和图片来自麦当劳 MCP 的一次菜单快照，实时供应和价格以麦当劳官方渠道为准。
 
+在线试玩：https://rianlu.github.io/mcd-rogue/
+
 ## 画面
 
-电脑上整张地图都在画面里。手机竖着玩时镜头跟着人物走，右上角有小地图，轮盘在左下角。手册分成技能和神器。
+电脑上整张地图都在画面里。手机竖着玩时镜头跟着人物走，右上角有小地图，轮盘跟着手指出现在左下角。打开后先看到封面，再选套餐。技能和神器在暂停或商店里查看，不占战斗画面。
 
-![横屏战斗](docs/screenshots/battle-land.png)
+### 开场
 
-![竖屏战斗](docs/screenshots/battle-port.png)
+![电脑开场](docs/screenshots/cover-land.png)
 
-![手册](docs/screenshots/handbook.png)
+![手机开场](docs/screenshots/cover-port.png)
+
+### 选套餐
+
+![电脑选套餐](docs/screenshots/meal-land.png)
+
+![手机选套餐](docs/screenshots/meal-port.png)
+
+### 战斗
+
+![电脑战斗](docs/screenshots/battle-land.png)
+
+![手机战斗](docs/screenshots/battle-port.png)
+
+### 暂停
+
+![电脑暂停](docs/screenshots/pause-land.png)
+
+![手机暂停](docs/screenshots/pause-port.png)
+
+### 商店
+
+![电脑商店](docs/screenshots/shop-land.png)
+
+![手机商店](docs/screenshots/shop-port.png)
+
+### 手册
+
+![电脑手册](docs/screenshots/handbook-land.png)
+
+![手机手册](docs/screenshots/handbook-port.png)
+
+### 设置
+
+![电脑设置](docs/screenshots/settings-land.png)
+
+![手机设置](docs/screenshots/settings-port.png)
+
+### 倒下了
+
+![电脑结算](docs/screenshots/dead-land.png)
+
+![手机结算](docs/screenshots/dead-port.png)
 
 ## 目标用户
 
@@ -33,11 +77,11 @@ npm run dev
 
 ## 使用示例
 
-- 电脑用 WASD 或方向键移动，也可以拖左下角轮盘。手机先横过来，再用轮盘。
-- 普攻自动发射。点底部技能格可以查看效果，并按回收价卖出。
-- 每局开始先选一套餐，免费带走里面列出的两件。商店不卖套餐。
-- 每一关清完，地上的金币、血包和护盾会先吸过来，再进商店。无尽里每一波也一样，而且一波比一波难。商店每次随机 4 件，第一次刷新免费，之后是 8、12、18 金币。装备只在商店买，都对应菜单商品。新地加大收集范围，经典麦旋风会把金币、血包和护盾吸过来。买下的雪碧、麦乐鸡会一直自己放。
-- 左上角可以打开设置、手册和暂停。暂停也可以按 P 或 Esc。
+- 打开后先点「开始闯关」，再从三套里选一套。套餐按菜单标价展示，不扣金币，带走里面的餐品。
+- 电脑用 WASD 或方向键移动，也可以按住画面拖出轮盘。手机竖屏，手指按在画面上移动，镜头跟着人，右上角小地图看全场。
+- 普攻自动朝最近的怪发射。买下的技能会掉在地上，捡到才放一次。暂停里能看到身上的技能和神器，回收前会再确认一次。
+- 每一关清完，地上的东西先收走，再进商店。无尽里每一波也一样，而且一波比一波难。商店每次随机 4 件，第一次刷新免费，之后是 8、12、18 金币。增益买下后一直生效，神器不占八个格子。新地让靠近的怪变慢，经典麦旋风会把金币、血包、护盾和技能卷过来。
+- 左上角可以打开设置、手册和暂停。暂停也可以按 P 或 Esc。第 5 关有冲锋头目，第 10 关是最终头目，之后进入无尽。
 
 打包静态页面：
 
