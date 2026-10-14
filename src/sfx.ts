@@ -72,7 +72,8 @@ export class Sfx {
   }
 }
 
-const melody = [262, 330, 392, 330, 440, 392, 330, 262, 349, 440, 523, 440, 392, 330, 294, 262];
+const bass = [174.61, 174.61, 220, 196, 174.61, 146.83, 196, 220];
+const lead = [349.23, 392, 440, 392, 349.23, 329.63, 293.66, 329.63, 392, 440, 493.88, 440, 392, 349.23, 329.63, 293.66];
 
 export class Bgm {
   private timer = 0;
@@ -86,7 +87,7 @@ export class Bgm {
   ensure() {
     if (!prefs.bgm || !unlocked || this.timer) return;
     this.next = context().currentTime + 0.08;
-    this.timer = window.setInterval(() => this.pump(), 60);
+    this.timer = window.setInterval(() => this.pump(), 80);
   }
 
   stop() {
@@ -98,25 +99,27 @@ export class Bgm {
   private pump() {
     if (!prefs.bgm || !unlocked) return;
     const audio = context();
-    while (this.next < audio.currentTime + 0.25) {
-      this.note(melody[this.step % melody.length], this.next, 0.045);
-      if (this.step % 4 === 0) this.note(melody[this.step % melody.length] / 2, this.next, 0.03, "triangle");
+    while (this.next < audio.currentTime + 0.35) {
+      const beat = this.step % 16;
+      this.note(bass[beat % bass.length] / 2, this.next, 0.5, 0.03, "sine");
+      if (beat % 2 === 0) this.note(lead[beat], this.next, 0.34, 0.045, "triangle");
+      if (beat % 4 === 0) this.note(lead[beat] / 2, this.next, 0.5, 0.02, "sine");
       this.step += 1;
-      this.next += 0.24;
+      this.next += beat % 2 === 0 ? 0.34 : 0.22;
     }
   }
 
-  private note(freq: number, when: number, volume: number, type: OscillatorType = "square") {
+  private note(freq: number, when: number, duration: number, volume: number, type: OscillatorType) {
     const audio = context();
     const osc = audio.createOscillator();
     const amp = audio.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, when);
     amp.gain.setValueAtTime(volume, when);
-    amp.gain.exponentialRampToValueAtTime(0.001, when + 0.2);
+    amp.gain.exponentialRampToValueAtTime(0.001, when + duration);
     osc.connect(amp);
     amp.connect(audio.destination);
     osc.start(when);
-    osc.stop(when + 0.22);
+    osc.stop(when + duration + 0.02);
   }
 }
