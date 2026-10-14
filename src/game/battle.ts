@@ -1,6 +1,6 @@
 import { Sfx } from "../sfx";
 import { prefs } from "../settings";
-import { recyclePrice, skillById, skills, type SkillId } from "./content";
+import { comboById, combos, recyclePrice, skillById, skills, type ComboId, type Offer, type SkillId } from "./content";
 import mapLayout from "./map-layout.json";
 
 type MapObstacle = { file: string; x: number; y: number; w: number; h: number };
@@ -17,7 +17,7 @@ export type Hud = {
   wave: number;
   scene: 1 | 2;
   slots: Array<SlotState | null>;
-  offers: SkillId[];
+  offers: Offer[];
   refreshes: number;
   refreshCost: number;
   pending: SkillId | null;
@@ -59,8 +59,9 @@ type Shot = {
   kind: "basic" | "orb" | "soda";
   splitGen: number;
   homing: number;
+  icon?: string;
 };
-type Zone = { x: number; y: number; r: number; life: number; tick: number; dmg: number; slow: boolean };
+type Zone = { x: number; y: number; r: number; life: number; tick: number; dmg: number; slow: boolean; icon?: string };
 type Bomb = { x: number; y: number; fuse: number; r: number; dmg: number };
 type Drop = { x: number; y: number; kind: "gold" | "heal" | "shield" | "skill"; amount: number; skill?: SkillId };
 type Floater = { x: number; y: number; text: string; life: number; color: string };
@@ -93,6 +94,56 @@ function picture(src: string) {
   return image.complete && image.naturalWidth > 0 ? image : null;
 }
 
+const cutouts = new Map<string, HTMLCanvasElement>();
+
+function cutout(src: string) {
+  const image = picture(src);
+  if (!image) return null;
+  const cached = cutouts.get(src);
+  if (cached) return cached;
+  const temp = document.createElement("canvas");
+  temp.width = image.naturalWidth;
+  temp.height = image.naturalHeight;
+  const context = temp.getContext("2d");
+  if (!context) return null;
+  context.drawImage(image, 0, 0);
+  const pixels = context.getImageData(0, 0, temp.width, temp.height).data;
+  let minX = temp.width;
+  let minY = temp.height;
+  let maxX = 0;
+  let maxY = 0;
+  for (let y = 0; y < temp.height; y += 1) {
+    for (let x = 0; x < temp.width; x += 1) {
+      if (pixels[(y * temp.width + x) * 4 + 3] <= 16) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  const canvas = document.createElement("canvas");
+  if (maxX < minX) {
+    canvas.width = temp.width;
+    canvas.height = temp.height;
+    canvas.getContext("2d")?.drawImage(temp, 0, 0);
+  } else {
+    canvas.width = Math.max(1, maxX - minX + 1);
+    canvas.height = Math.max(1, maxY - minY + 1);
+    canvas.getContext("2d")?.drawImage(temp, minX, minY, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+  }
+  cutouts.set(src, canvas);
+  return canvas;
+}
+
+function drawStamp(ctx: CanvasRenderingContext2D, src: string, x: number, y: number, size: number) {
+  const image = cutout(src);
+  if (!image) return;
+  const scale = Math.min(size / image.width, size / image.height);
+  const w = image.width * scale;
+  const h = image.height * scale;
+  ctx.drawImage(image, x - w / 2, y - h / 2, w, h);
+}
+
 function length(x: number, y: number) {
   return Math.hypot(x, y) || 1;
 }
@@ -111,7 +162,7 @@ export class Battle {
   wave = 1;
   scene: 1 | 2 = 1;
   slots: Array<SlotState | null> = Array.from({ length: 8 }, () => null);
-  offers: SkillId[] = [];
+  offers: Offer[] = [];
   refreshes = 0;
   pending: SkillId | null = null;
   over: Hud["over"] = "";
@@ -241,6 +292,21 @@ export class Battle {
       this.slots[index] = { id, rank: 1, branch: null };
     }
     this.gold = Math.round((this.gold - def.price) * 10) / 10;
+    this.sfx.levelUp();
+    this.burst(this.px, this.py, "#ffbc0d");
+    return true;
+  }
+
+  buyCombo(id: ComboId) {
+    const combo = comboById[id];
+    if (this.gold < combo.price) return false;
+    if (combo.grants.some((skillId) => this.has(skillId))) return false;
+    if (this.slots.filter((slot) => !slot).length < combo.grants.length) return false;
+    for (const skillId of combo.grants) {
+      const index = this.slots.findIndex((slot) => !slot);
+      this.slots[index] = { id: skillId, rank: 1, branch: null };
+    }
+    this.gold = Math.round((this.gold - combo.price) * 10) / 10;
     this.sfx.levelUp();
     this.burst(this.px, this.py, "#ffbc0d");
     return true;
@@ -524,6 +590,7 @@ export class Battle {
           tick: 0,
           dmg: 4,
           slow: false,
+          icon: skillById.pie.image,
         });
       }
     }
@@ -549,6 +616,7 @@ export class Battle {
             kind: "soda",
             splitGen: 0,
             homing: 0,
+            icon: skillById.soda.image,
           });
         }
         this.sfx.shoot();
@@ -567,9 +635,10 @@ export class Battle {
           tick: 0,
           dmg: 7,
           slow: true,
+          icon: skillById.ice.image,
         });
         if (branch === "b") {
-          this.zones.push({ x: this.px, y: this.py, r: 80, life: 1.6, tick: 0.2, dmg: 2, slow: true });
+          this.zones.push({ x: this.px, y: this.py, r: 80, life: 1.6, tick: 0.2, dmg: 2, slow: true, icon: skillById.ice.image });
         }
       }
     }
@@ -590,7 +659,7 @@ export class Battle {
           this.coffeeHurt = false;
           const branch = this.slot("coffee")?.branch;
           const radius = branch === "b" ? 130 : 78;
-          this.pulse(this.px, this.py, radius, branch === "a" ? 14 : 8);
+          this.pulse(this.px, this.py, radius, branch === "a" ? 14 : 8, skillById.coffee.image);
         }
       }
     }
@@ -628,6 +697,7 @@ export class Battle {
       kind: "basic",
       splitGen: 0,
       homing: home ? (follow?.branch === "a" ? 2 : 1) : 0,
+      icon: follow ? skillById.follow.image : undefined,
     });
     this.sfx.shoot();
   }
@@ -652,6 +722,7 @@ export class Battle {
         kind: "orb",
         splitGen: 0,
         homing: 0,
+        icon: skillById.auto.image,
       });
     }
   }
@@ -736,7 +807,8 @@ export class Battle {
   }
 
   private rollOffers() {
-    const pool = skills.map((skill) => skill.id).filter((id) => this.offerable(id) && !this.offers.includes(id));
+    const seen = new Set(this.offers.flatMap((offer) => (offer.kind === "skill" ? [offer.id] : [])));
+    const pool = skills.map((skill) => skill.id).filter((id) => this.offerable(id) && !seen.has(id));
     const source = pool.length >= 4 ? pool : skills.map((skill) => skill.id).filter((id) => this.offerable(id));
     const shuffled = [...source].sort(() => Math.random() - 0.5);
     const picked: SkillId[] = [];
@@ -748,7 +820,23 @@ export class Battle {
       if (picked.length >= 4) break;
       if (!picked.includes(id)) picked.push(id);
     }
-    this.offers = picked.slice(0, 4);
+    const offers: Offer[] = picked.slice(0, 4).map((id) => ({ kind: "skill", id }));
+    const combo = this.pickCombo();
+    if (combo) {
+      if (offers.length >= 4) offers[3] = { kind: "combo", id: combo };
+      else offers.push({ kind: "combo", id: combo });
+    }
+    this.offers = offers;
+  }
+
+  private pickCombo() {
+    const open = this.slots.filter((slot) => !slot).length;
+    const seen = new Set(this.offers.flatMap((offer) => (offer.kind === "combo" ? [offer.id] : [])));
+    const ready = combos.filter((combo) => open >= combo.grants.length && combo.grants.every((id) => !this.has(id)));
+    const fresh = ready.filter((combo) => !seen.has(combo.id));
+    const list = fresh.length ? fresh : ready;
+    if (!list.length) return null;
+    return list[Math.floor(Math.random() * list.length)].id;
   }
 
   private offerable(id: SkillId) {
@@ -830,6 +918,7 @@ export class Battle {
         kind: "orb",
         splitGen: shot.splitGen + 1,
         homing: 0,
+        icon: skillById.split.image,
       });
     }
   }
@@ -1067,8 +1156,8 @@ export class Battle {
     this.gold += 6;
   }
 
-  private pulse(x: number, y: number, radius: number, dmg: number) {
-    this.zones.push({ x, y, r: radius, life: 0.25, tick: 0, dmg, slow: false });
+  private pulse(x: number, y: number, radius: number, dmg: number, icon?: string) {
+    this.zones.push({ x, y, r: radius, life: 0.25, tick: 0, dmg, slow: false, icon });
     this.burst(x, y, "#db0007");
   }
 
@@ -1129,6 +1218,7 @@ export class Battle {
       ctx.fillStyle = zone.slow ? "rgba(255,188,13,.28)" : "rgba(219,0,7,.16)";
       ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI * 2);
       ctx.fill();
+      if (zone.icon) drawStamp(ctx, zone.icon, zone.x, zone.y, Math.min(48, zone.r * 0.9));
     }
     for (const drop of this.drops) this.drawDrop(drop);
     for (const bomb of this.bombs) {
@@ -1140,6 +1230,10 @@ export class Battle {
     }
     for (const enemy of this.enemies) this.drawEnemy(enemy);
     for (const shot of this.shots) {
+      if (shot.icon) {
+        drawStamp(ctx, shot.icon, shot.x, shot.y, shot.kind === "orb" ? 34 : shot.kind === "soda" ? 28 : 24);
+        continue;
+      }
       ctx.save();
       ctx.translate(shot.x, shot.y);
       ctx.rotate(Math.atan2(shot.vy, shot.vx));
@@ -1151,18 +1245,10 @@ export class Battle {
       ctx.fillStyle = "#ffbc0d";
       ctx.strokeStyle = "#2d2d2d";
       ctx.lineWidth = 3;
-      ctx.arc(point.x, point.y, 11, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, 14, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      const image = picture(skillById.orbit.image);
-      if (image) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, 8, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.drawImage(image, point.x - 8, point.y - 8, 16, 16);
-        ctx.restore();
-      }
+      drawStamp(ctx, skillById.orbit.image, point.x, point.y, 24);
     }
     this.drawPlayer();
     for (const bit of this.bits) {
@@ -1185,6 +1271,14 @@ export class Battle {
     ctx.restore();
   }
 
+  private carriedImage() {
+    for (let index = this.slots.length - 1; index >= 0; index -= 1) {
+      const slot = this.slots[index];
+      if (slot) return skillById[slot.id].image;
+    }
+    return "";
+  }
+
   private drawPlayer() {
     const ctx = this.ctx;
     if (this.shield > 0 || this.teaLeft > 0) {
@@ -1194,6 +1288,8 @@ export class Battle {
       ctx.arc(this.px, this.py, 24, 0, Math.PI * 2);
       ctx.stroke();
     }
+    const carried = this.carriedImage();
+    if (this.shield > 0 && this.has("milk") && carried !== skillById.milk.image) drawStamp(ctx, skillById.milk.image, this.px - 18, this.py - 20, 22);
     ctx.beginPath();
     ctx.fillStyle = this.hurtCd > 0 ? "#ffd0d0" : "#ffffff";
     ctx.strokeStyle = "#2d2d2d";
@@ -1201,6 +1297,7 @@ export class Battle {
     ctx.arc(this.px, this.py, 16, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    if (carried) drawStamp(ctx, carried, this.px + 14, this.py + 12, 28);
     ctx.save();
     ctx.translate(this.px, this.py);
     ctx.rotate(this.face - Math.PI / 2);
@@ -1288,22 +1385,15 @@ export class Battle {
       ctx.strokeRect(drop.x - 5, drop.y - 5, 10, 10);
       return;
     }
-    const image = drop.skill ? picture(skillById[drop.skill].image) : null;
+    if (!drop.skill) return;
     ctx.beginPath();
     ctx.fillStyle = "#fff";
     ctx.strokeStyle = "#2d2d2d";
     ctx.lineWidth = 2;
-    ctx.arc(drop.x, drop.y, 10, 0, Math.PI * 2);
+    ctx.arc(drop.x, drop.y, 12, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    if (image) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(drop.x, drop.y, 8, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.drawImage(image, drop.x - 8, drop.y - 8, 16, 16);
-      ctx.restore();
-    }
+    drawStamp(ctx, skillById[drop.skill].image, drop.x, drop.y, 20);
   }
 }
 

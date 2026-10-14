@@ -50,6 +50,26 @@ export const skills: SkillDef[] = [
 
 export const skillById = Object.fromEntries(skills.map((skill) => [skill.id, skill])) as Record<SkillId, SkillDef>;
 
+export type ComboId = "nugget-meal" | "bigmac-meal" | "grill-meal";
+
+export type ComboDef = {
+  id: ComboId;
+  name: string;
+  image: string;
+  price: number;
+  grants: [SkillId, SkillId];
+};
+
+export const combos: ComboDef[] = [
+  { id: "nugget-meal", name: "麦乐鸡套餐", image: "menu/9900004835.png", price: 25, grants: ["auto", "follow"] },
+  { id: "bigmac-meal", name: "巨无霸三件套", image: "menu/9900005466.png", price: 36.5, grants: ["orbit", "follow"] },
+  { id: "grill-meal", name: "板烧鸡腿堡三件套", image: "menu/9900005462.png", price: 34.5, grants: ["split", "follow"] },
+];
+
+export const comboById = Object.fromEntries(combos.map((combo) => [combo.id, combo])) as Record<ComboId, ComboDef>;
+
+export type Offer = { kind: "skill"; id: SkillId } | { kind: "combo"; id: ComboId };
+
 export function recyclePrice(price: number, rank: number, branched: boolean) {
   const factor = rank >= 3 ? 0.5 : rank >= 2 || branched ? 0.4 : 0.3;
   return Math.max(1, Math.floor((price * factor) * 2) / 2);

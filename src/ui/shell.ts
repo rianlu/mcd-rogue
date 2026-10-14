@@ -1,7 +1,7 @@
 import { Bgm, unlockAudio } from "../sfx";
 import { prefs, savePrefs } from "../settings";
 import { Battle, type SlotState } from "../game/battle";
-import { recyclePrice, schoolLabel, skillById, type School, type SkillId } from "../game/content";
+import { comboById, recyclePrice, schoolLabel, skillById, type ComboId, type School, type SkillId } from "../game/content";
 
 type Modal = "none" | "shop" | "skill" | "branch" | "manual" | "settings" | "pause" | "pending" | "dead";
 
@@ -90,10 +90,35 @@ function closeModal() {
   paintSlots(false);
 }
 
+function comboCard(id: ComboId) {
+  const combo = comboById[id];
+  const hud = battle.hud();
+  const owned = combo.grants.some((skillId) => hud.slots.some((slot) => slot?.id === skillId));
+  const empty = hud.slots.filter((slot) => !slot).length;
+  const afford = hud.gold >= combo.price;
+  const single = combo.grants.reduce((sum, skillId) => sum + skillById[skillId].price, 0);
+  const save = Math.round((single - combo.price) * 10) / 10;
+  const names = combo.grants.map((skillId) => skillById[skillId].name).join(" + ");
+  const fit = empty >= combo.grants.length && !owned;
+  const label = owned ? "已带走" : empty < combo.grants.length ? "要空两格" : afford ? "一起买" : "金币不够";
+  return `<article class="product meal">
+    <img src="${combo.image}" alt="">
+    <div class="meal-copy">
+      <strong>${combo.name}</strong>
+      <span class="tag meal">套餐</span>
+      <p>${names}，省 ${money(save)}</p>
+      <p class="price">${yuan(combo.price)}</p>
+    </div>
+    <button class="btn gold" type="button" data-combo="${id}" ${!fit || !afford ? "disabled" : ""}>${label}</button>
+  </article>`;
+}
+
 function shopHtml() {
   const hud = battle.hud();
   const cards = hud.offers
-    .map((id) => {
+    .map((offer) => {
+      if (offer.kind === "combo") return comboCard(offer.id);
+      const id = offer.id;
       const skill = skillById[id];
       const owned = hud.slots.find((slot) => slot?.id === id);
       const branch = Boolean(owned && skill.kind === "主动" && !owned.branch);
@@ -152,7 +177,7 @@ function manualHtml() {
     .filter((skill) => skill.school === tab)
     .map((skill) => `<article class="row"><img src="${skill.image}" alt=""><div><strong>${skill.name}</strong> ${tag(skill.school, skill.kind)}<p>${skill.effect}</p></div></article>`)
     .join("");
-  return `<section class="panel manual"><h2>手册</h2><div class="tabs">${tabs}</div>${rows}</section>`;
+  return `<section class="panel manual"><h2>手册</h2><div class="tabs">${tabs}</div>${rows}<p class="quote">套餐不单列。商店里凑齐两件现有餐品时，用套餐图一次买下。</p></section>`;
 }
 
 function settingsHtml() {
@@ -304,6 +329,11 @@ export function mountShell(host: HTMLElement) {
     if (recycle?.dataset.recycle) {
       battle.recycle(Number(recycle.dataset.recycle));
       closeModal();
+      return;
+    }
+    const meal = target.closest<HTMLElement>("[data-combo]");
+    if (meal?.dataset.combo === "nugget-meal" || meal?.dataset.combo === "bigmac-meal" || meal?.dataset.combo === "grill-meal") {
+      if (battle.buyCombo(meal.dataset.combo)) openModal("shop");
       return;
     }
     const buyer = target.closest<HTMLElement>("[data-buy]");
