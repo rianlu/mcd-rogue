@@ -1,6 +1,11 @@
 import { Sfx } from "../sfx";
 import { prefs } from "../settings";
 import { recyclePrice, skillById, skills, type SkillId } from "./content";
+import mapLayout from "./map-layout.json";
+
+type MapObstacle = { file: string; x: number; y: number; w: number; h: number };
+type MapDef = { stage: number; background: string; obstacles: MapObstacle[] };
+const stageMaps = (mapLayout as { maps: MapDef[] }).maps;
 
 export type SlotState = { id: SkillId; rank: number; branch: "a" | "b" | null };
 
@@ -14,6 +19,7 @@ export type Hud = {
   slots: Array<SlotState | null>;
   offers: SkillId[];
   refreshes: number;
+  refreshCost: number;
   pending: SkillId | null;
   over: "" | "dead" | "clear";
   banner: string;
@@ -29,10 +35,15 @@ type Enemy = {
   max: number;
   kind: "walker" | "turret" | "boss";
   elite: boolean;
+  trick: "split" | "boom" | "burst" | "dash" | "nova" | "bomb" | null;
+  minion: boolean;
   cd: number;
   slow: number;
   flash: number;
   orbCd: number;
+  skillCd: number;
+  dashLeft: number;
+  dashAngle: number;
 };
 type Shot = {
   x: number;
@@ -50,6 +61,7 @@ type Shot = {
   homing: number;
 };
 type Zone = { x: number; y: number; r: number; life: number; tick: number; dmg: number; slow: boolean };
+type Bomb = { x: number; y: number; fuse: number; r: number; dmg: number };
 type Drop = { x: number; y: number; kind: "gold" | "heal" | "shield" | "skill"; amount: number; skill?: SkillId };
 type Floater = { x: number; y: number; text: string; life: number; color: string };
 type Bit = { x: number; y: number; vx: number; vy: number; life: number; color: string };
@@ -117,7 +129,7 @@ export class Battle {
   private px = 280;
   private py = 340;
   private face = 0;
-  private shotCd = 0.2;
+  private shotCd = 0.8;
   private hurtCd = 0;
   private iframe = 0;
   private shake = 0;
@@ -136,30 +148,22 @@ export class Battle {
   private leftNormal = 8;
   private leftElite = 0;
   private leftBoss = 0;
-  private fieldCd = 8;
+  private fieldCd = 16;
   private nextId = 1;
   private enemies: Enemy[] = [];
   private shots: Shot[] = [];
   private zones: Zone[] = [];
   private drops: Drop[] = [];
+  private bombs: Bomb[] = [];
   private floaters: Floater[] = [];
   private bits: Bit[] = [];
   private orbitAngle = 0;
-  private blocks: Rect[] = [
-    [14, 22, 16, 12],
-    [38, 18, 18, 11],
-    [68, 20, 15, 12],
-    [22, 48, 14, 10],
-    [58, 46, 18, 11],
-    [82, 58, 12, 16],
-    [36, 74, 16, 11],
-    [70, 78, 14, 10],
-  ].map(([cx, cy, w, h]) => ({
-    x: (cx / 100) * W - (w / 100) * W * 0.5,
-    y: (cy / 100) * H - (h / 100) * H * 0.5,
-    w: (w / 100) * W,
-    h: (h / 100) * H,
-  }));
+  private blocks: Rect[] = [];
+  private mapStage = 1;
+  private endless = false;
+  private eliteCursor = 0;
+  private bossCursor = 0;
+  private images = new Map<string, HTMLImageElement>();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -167,6 +171,7 @@ export class Battle {
     if (!ctx) throw new Error("canvas");
     this.ctx = ctx;
     this.bindKeys();
+    this.useMap(1);
     this.resize();
     window.addEventListener("resize", this.resize);
   }
@@ -212,6 +217,7 @@ export class Battle {
       slots: this.slots.map((slot) => (slot ? { ...slot } : null)),
       offers: [...this.offers],
       refreshes: this.refreshes,
+      refreshCost: this.refreshCost(),
       pending: this.pending,
       over: this.over,
       banner: this.banner,
@@ -287,9 +293,18 @@ export class Battle {
     this.float(this.px, this.py - 20, "+6", "#2d2d2d");
   }
 
+  refreshCost() {
+    if (this.refreshes <= 0) return 0;
+    if (this.refreshes === 1) return 8;
+    if (this.refreshes === 2) return 12;
+    return 18;
+  }
+
   refreshShop() {
-    if (this.refreshes >= 2 || this.gold < 20) return false;
-    this.gold -= 20;
+    if (this.refreshes >= 4) return false;
+    const cost = this.refreshCost();
+    if (this.gold < cost) return false;
+    this.gold = Math.round((this.gold - cost) * 10) / 10;
     this.refreshes += 1;
     this.rollOffers();
     return true;
@@ -298,11 +313,12 @@ export class Battle {
   continueShop() {
     this.paused = false;
     this.refreshes = 0;
-    if (this.wave === 10 && this.scene === 1) {
-      this.scene = 2;
-      this.banner = "后厨";
+    if (this.wave === 10 && !this.endless) {
+      this.endless = true;
+      this.beginWave();
+      return;
     }
-    this.wave += 1;
+    if (!this.endless) this.wave += 1;
     this.beginWave();
   }
 
@@ -312,6 +328,9 @@ export class Battle {
     this.gold = 0;
     this.wave = 1;
     this.scene = 1;
+    this.endless = false;
+    this.eliteCursor = 0;
+    this.bossCursor = 0;
     this.slots = Array.from({ length: 8 }, () => null);
     this.pending = null;
     this.over = "";
@@ -320,6 +339,7 @@ export class Battle {
     this.shots = [];
     this.zones = [];
     this.drops = [];
+    this.bombs = [];
     this.px = 280;
     this.py = 340;
     this.banner = "第 1 关";
@@ -364,19 +384,49 @@ export class Battle {
   }
 
   private beginWave() {
-    const plan = waves[Math.min(waves.length - 1, this.wave - 1)] ?? { normal: 12, elite: 2, boss: 0 };
-    const scale = this.wave > 10 ? 1 : 1;
-    this.leftNormal = Math.round(plan.normal * scale);
-    this.leftElite = plan.elite;
-    this.leftBoss = this.wave === 10 || (this.wave > 10 && this.wave % 10 === 0) ? 1 : plan.boss;
-    if (this.wave > 10 && this.wave % 10 !== 0) {
-      this.leftNormal = 10 + (this.wave % 5) * 2;
+    if (this.endless) {
+      this.useMap(11);
+      this.leftNormal = 8;
       this.leftElite = 2;
-      this.leftBoss = 0;
+      this.leftBoss = 1;
+      this.spawnCd = 0.35;
+      this.banner = "无尽";
+      this.scene = 2;
+      this.float(W / 2, 70, this.banner, "#2d2d2d");
+      return;
     }
+    const plan = waves[this.wave - 1] ?? waves[0];
+    this.useMap(this.wave);
+    this.leftNormal = plan.normal;
+    this.leftElite = plan.elite;
+    this.leftBoss = plan.boss;
     this.spawnCd = 0.35;
-    this.banner = this.scene === 2 && this.wave === 11 ? "后厨" : `第 ${this.wave} 关`;
+    this.banner = `第 ${this.wave} 关`;
+    this.scene = 1;
     this.float(W / 2, 70, this.banner, "#2d2d2d");
+  }
+
+  private useMap(stage: number) {
+    const map = stageMaps.find((item) => item.stage === stage) ?? stageMaps[0];
+    this.mapStage = map.stage;
+    this.blocks = map.obstacles.map((item) => ({ x: item.x, y: item.y, w: item.w, h: item.h }));
+    this.prepareImage(map.background);
+    for (const item of map.obstacles) this.prepareImage(item.file);
+    if (this.blocked(this.px, this.py, 16)) {
+      this.px = 480;
+      this.py = 270;
+    }
+  }
+
+  private prepareImage(src: string) {
+    if (this.images.has(src)) return;
+    const image = new Image();
+    image.src = src;
+    this.images.set(src, image);
+  }
+
+  private currentMap() {
+    return stageMaps.find((item) => item.stage === this.mapStage) ?? stageMaps[0];
   }
 
   private update(dt: number) {
@@ -446,7 +496,7 @@ export class Battle {
     this.orbitAngle += dt * 2.2;
     this.shotCd -= dt;
     if (this.shotCd <= 0) {
-      this.shotCd = 0.45;
+      this.shotCd = 1.05;
       const target = this.nearest(this.px, this.py);
       if (target) this.fireBasic(target);
     }
@@ -622,10 +672,10 @@ export class Battle {
     if (this.spawnCd > 0) return;
     if (this.leftBoss > 0) {
       this.leftBoss -= 1;
-      this.enemies.push(this.makeEnemy(true, "boss"));
+      this.enemies.push(this.makeBoss());
     } else if (this.leftElite > 0) {
       this.leftElite -= 1;
-      this.enemies.push(this.makeEnemy(true, "walker"));
+      this.enemies.push(this.makeElite());
     } else if (this.leftNormal > 0) {
       this.leftNormal -= 1;
       this.enemies.push(this.makeEnemy(false, Math.random() < 0.35 ? "turret" : "walker"));
@@ -638,7 +688,7 @@ export class Battle {
     const x = edge < 1 ? 30 : edge < 2 ? W - 30 : 40 + Math.random() * (W - 80);
     const y = edge < 2 ? 40 + Math.random() * (H - 80) : edge < 3 ? 30 : H - 30;
     const hp = kind === "boss" ? 520 : elite ? 72 : kind === "turret" ? 16 : 24;
-    const scaled = this.scene === 2 ? hp * 1.5 : hp;
+    const scaled = this.endless ? hp * 1.35 : hp;
     return {
       id: this.nextId++,
       x,
@@ -652,40 +702,53 @@ export class Battle {
       slow: 0,
       flash: 0,
       orbCd: 0,
+      skillCd: 1.2,
+      dashLeft: 0,
+      dashAngle: 0,
+      trick: null,
+      minion: false,
     };
+  }
+
+  private makeElite() {
+    const tricks = ["split", "boom", "burst", "dash"] as const;
+    const trick = tricks[this.eliteCursor % tricks.length];
+    this.eliteCursor += 1;
+    const enemy = this.makeEnemy(true, trick === "burst" ? "turret" : "walker");
+    enemy.trick = trick;
+    return enemy;
+  }
+
+  private makeBoss() {
+    const tricks = ["nova", "split", "bomb", "dash"] as const;
+    const trick = this.wave === 10 && !this.endless ? "nova" : tricks[this.bossCursor % tricks.length];
+    if (!(this.wave === 10 && !this.endless)) this.bossCursor += 1;
+    const enemy = this.makeEnemy(true, "boss");
+    enemy.trick = trick;
+    return enemy;
   }
 
   private finishWave() {
     this.gold += 2;
     this.paused = true;
-    if (this.wave % 5 === 0) {
-      this.rollOffers();
-      this.onShop?.();
-      return;
-    }
-    this.paused = false;
-    this.wave += 1;
-    this.beginWave();
+    this.rollOffers();
+    this.onShop?.();
   }
 
   private rollOffers() {
-    const pools: Record<"orb" | "tank" | "spell", SkillId[]> = { orb: [], tank: [], spell: [] };
-    for (const skill of skills) {
-      if (this.offerable(skill.id)) pools[skill.school].push(skill.id);
-    }
+    const pool = skills.map((skill) => skill.id).filter((id) => this.offerable(id) && !this.offers.includes(id));
+    const source = pool.length >= 4 ? pool : skills.map((skill) => skill.id).filter((id) => this.offerable(id));
+    const shuffled = [...source].sort(() => Math.random() - 0.5);
     const picked: SkillId[] = [];
     for (const school of ["orb", "tank", "spell"] as const) {
-      const copy = [...pools[school]];
-      for (let i = 0; i < 2 && copy.length; i += 1) {
-        picked.push(copy.splice(Math.floor(Math.random() * copy.length), 1)[0]);
-      }
+      const found = shuffled.find((id) => skillById[id].school === school && !picked.includes(id));
+      if (found) picked.push(found);
     }
-    while (picked.length < 6) {
-      const rest = skills.map((skill) => skill.id).filter((id) => this.offerable(id) && !picked.includes(id));
-      if (!rest.length) break;
-      picked.push(rest[Math.floor(Math.random() * rest.length)]);
+    for (const id of shuffled) {
+      if (picked.length >= 4) break;
+      if (!picked.includes(id)) picked.push(id);
     }
-    this.offers = picked;
+    this.offers = picked.slice(0, 4);
   }
 
   private offerable(id: SkillId) {
@@ -792,8 +855,20 @@ export class Battle {
       enemy.slow = Math.max(0, enemy.slow - dt);
       enemy.orbCd = Math.max(0, enemy.orbCd - dt);
       enemy.cd -= dt;
+      enemy.skillCd = Math.max(0, enemy.skillCd - dt);
       const slow = enemy.slow > 0 ? 0.55 : 1;
-      if (enemy.kind === "walker" || enemy.kind === "boss") {
+      if (enemy.dashLeft > 0) {
+        enemy.dashLeft -= dt;
+        const speed = enemy.kind === "boss" ? 340 : 280;
+        const next = this.collide(enemy.x + Math.cos(enemy.dashAngle) * speed * dt, enemy.y + Math.sin(enemy.dashAngle) * speed * dt, enemy.r);
+        enemy.x = next.x;
+        enemy.y = next.y;
+        if (Math.hypot(enemy.x - this.px, enemy.y - this.py) < enemy.r + 16) this.hurt(enemy.kind === "boss" ? 16 : 12);
+      } else if (enemy.trick === "dash" && enemy.skillCd <= 0) {
+        enemy.skillCd = enemy.kind === "boss" ? 2.4 : 3.2;
+        enemy.dashLeft = enemy.kind === "boss" ? 0.42 : 0.28;
+        enemy.dashAngle = Math.atan2(this.py - enemy.y, this.px - enemy.x);
+      } else if (enemy.kind === "walker" || enemy.kind === "boss") {
         const speed = (enemy.kind === "boss" ? 62 : enemy.elite ? 100 : 80) * slow;
         const angle = Math.atan2(this.py - enemy.y, this.px - enemy.x);
         const next = this.collide(enemy.x + Math.cos(angle) * speed * dt, enemy.y + Math.sin(angle) * speed * dt, enemy.r);
@@ -804,18 +879,31 @@ export class Battle {
           this.hurt(enemy.kind === "boss" ? 18 : enemy.elite ? 16 : 10);
         }
       }
-      if ((enemy.kind === "turret" || enemy.kind === "boss") && enemy.cd <= 0) {
-        enemy.cd = enemy.kind === "boss" ? 2.2 : 1.7;
+      if (enemy.kind === "turret" && enemy.cd <= 0) {
+        enemy.cd = enemy.trick === "burst" ? 1.35 : 1.7;
         this.enemyShot(enemy);
+      }
+      if (enemy.kind === "boss" && enemy.trick === "nova" && enemy.cd <= 0) {
+        enemy.cd = 2.2;
+        this.enemyShot(enemy);
+      }
+      if (enemy.kind === "boss" && enemy.trick === "bomb" && enemy.skillCd <= 0) {
+        enemy.skillCd = 2.6;
+        this.bombs.push({ x: this.px, y: this.py, fuse: 0.85, r: 64, dmg: 16 });
       }
     }
     this.enemies = this.enemies.filter((enemy) => enemy.hp > 0);
+    this.updateBombs(dt);
   }
 
   private enemyShot(enemy: Enemy) {
-    const angles = enemy.kind === "boss" ? [0, 45, 90, 135, 180, 225, 270, 315] : [Math.atan2(this.py - enemy.y, this.px - enemy.x) * 180 / Math.PI];
-    for (const degree of angles) {
-      const angle = (degree * Math.PI) / 180;
+    const aim = Math.atan2(this.py - enemy.y, this.px - enemy.x);
+    const shots = enemy.trick === "burst"
+      ? [aim - 0.28, aim, aim + 0.28]
+      : enemy.kind === "boss"
+        ? [0, 45, 90, 135, 180, 225, 270, 315].map((degree) => (degree * Math.PI) / 180)
+        : [aim];
+    for (const angle of shots) {
       this.shots.push({
         x: enemy.x,
         y: enemy.y,
@@ -832,6 +920,19 @@ export class Battle {
         homing: 0,
       });
     }
+  }
+
+  private updateBombs(dt: number) {
+    for (const bomb of this.bombs) bomb.fuse -= dt;
+    const ripe = this.bombs.filter((bomb) => bomb.fuse <= 0);
+    this.bombs = this.bombs.filter((bomb) => bomb.fuse > 0);
+    for (const bomb of ripe) this.boom(bomb.x, bomb.y, bomb.r, bomb.dmg);
+  }
+
+  private boom(x: number, y: number, radius: number, dmg: number) {
+    this.zones.push({ x, y, r: radius, life: 0.28, tick: 1, dmg: 0, slow: false });
+    this.burst(x, y, "#ff8a00");
+    if (Math.hypot(x - this.px, y - this.py) < radius + 16) this.hurt(dmg);
   }
 
   private hurt(amount: number) {
@@ -879,11 +980,29 @@ export class Battle {
   }
 
   private kill(enemy: Enemy) {
+    if (enemy.minion) {
+      this.drops.push({ x: enemy.x, y: enemy.y, kind: "gold", amount: 1 });
+      return;
+    }
+    if (enemy.trick === "boom") this.boom(enemy.x, enemy.y, enemy.kind === "boss" ? 110 : 74, enemy.kind === "boss" ? 18 : 12);
+    if (enemy.trick === "split") {
+      for (const side of [-1, 1]) {
+        const baby = this.makeEnemy(enemy.kind === "boss", "walker");
+        baby.x = enemy.x + side * 22;
+        baby.y = enemy.y;
+        baby.r = enemy.kind === "boss" ? 16 : 10;
+        baby.hp = baby.max = enemy.kind === "boss" ? 70 : 14;
+        baby.minion = true;
+        baby.trick = null;
+        baby.elite = enemy.kind === "boss";
+        this.enemies.push(baby);
+      }
+    }
     const gold = enemy.kind === "boss" ? 25 : enemy.elite ? 5 : 2;
     this.drops.push({ x: enemy.x, y: enemy.y, kind: "gold", amount: gold });
     const roll = Math.random();
     if (enemy.kind === "boss") this.drops.push({ x: enemy.x + 16, y: enemy.y, kind: "skill", amount: 0, skill: this.randomSkill() });
-    else if (roll < 0.06) this.drops.push({ x: enemy.x + 14, y: enemy.y, kind: "skill", amount: 0, skill: this.randomSkill() });
+    else if (roll < (enemy.elite ? 0.1 : 0.04)) this.drops.push({ x: enemy.x + 14, y: enemy.y, kind: "skill", amount: 0, skill: this.randomSkill() });
     else if (roll < 0.14) this.drops.push({ x: enemy.x + 14, y: enemy.y, kind: "shield", amount: 24 });
     else if (roll < 0.32) this.drops.push({ x: enemy.x + 14, y: enemy.y, kind: "heal", amount: 28 });
   }
@@ -899,7 +1018,7 @@ export class Battle {
     const spot = { x: 80 + Math.random() * (W - 160), y: 80 + Math.random() * (H - 160) };
     if (roll < 0.45) this.drops.push({ ...spot, kind: "heal", amount: 28 });
     else if (roll < 0.65) this.drops.push({ ...spot, kind: "shield", amount: 24 });
-    else if (roll < 0.85) this.drops.push({ ...spot, kind: "gold", amount: 6 });
+    else if (roll < 0.9) this.drops.push({ ...spot, kind: "gold", amount: 6 });
     else this.drops.push({ ...spot, kind: "skill", amount: 0, skill: this.randomSkill() });
   }
 
@@ -993,23 +1112,18 @@ export class Battle {
     ctx.save();
     ctx.translate(ox, oy);
     ctx.scale(scale, scale);
-    ctx.fillStyle = this.scene === 2 ? "#f7f7f7" : "#ffe7a3";
-    ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = this.scene === 2 ? "rgba(182,154,129,.45)" : "rgba(255,188,13,.55)";
-    ctx.lineWidth = 2;
-    for (let x = 0; x <= W; x += 48) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, H);
-      ctx.stroke();
+    const map = this.currentMap();
+    const background = this.images.get(map.background);
+    if (background?.complete && background.naturalWidth > 0) {
+      ctx.drawImage(background, 0, 0, W, H);
+    } else {
+      ctx.fillStyle = "#ffe7a3";
+      ctx.fillRect(0, 0, W, H);
     }
-    for (let y = 0; y <= H; y += 48) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
-      ctx.stroke();
+    for (const item of map.obstacles) {
+      const sprite = this.images.get(item.file);
+      if (sprite?.complete && sprite.naturalWidth > 0) ctx.drawImage(sprite, item.x - 4, item.y - 4);
     }
-    for (const block of this.blocks) roundRect(ctx, block.x, block.y, block.w, block.h, 14, "#c4a574");
     for (const zone of this.zones) {
       ctx.beginPath();
       ctx.fillStyle = zone.slow ? "rgba(255,188,13,.28)" : "rgba(219,0,7,.16)";
@@ -1017,6 +1131,13 @@ export class Battle {
       ctx.fill();
     }
     for (const drop of this.drops) this.drawDrop(drop);
+    for (const bomb of this.bombs) {
+      ctx.beginPath();
+      ctx.strokeStyle = "#ff8a00";
+      ctx.lineWidth = 3;
+      ctx.arc(bomb.x, bomb.y, bomb.r * (1 - bomb.fuse / 0.85), 0, Math.PI * 2);
+      ctx.stroke();
+    }
     for (const enemy of this.enemies) this.drawEnemy(enemy);
     for (const shot of this.shots) {
       ctx.save();
@@ -1094,22 +1215,36 @@ export class Battle {
 
   private drawEnemy(enemy: Enemy) {
     const ctx = this.ctx;
-    ctx.beginPath();
-    ctx.fillStyle = enemy.flash > 0 ? "#ffffff" : "#db0007";
-    ctx.strokeStyle = enemy.elite ? "#ffbc0d" : "#2d2d2d";
-    ctx.lineWidth = enemy.elite ? 4 : 3;
-    if (enemy.kind === "turret") roundRect(ctx, enemy.x - enemy.r, enemy.y - enemy.r, enemy.r * 2, enemy.r * 2, 8, enemy.flash > 0 ? "#ffffff" : "#db0007");
-    else {
-      ctx.ellipse(enemy.x, enemy.y, enemy.kind === "boss" ? enemy.r + 8 : enemy.r, enemy.r, 0, 0, Math.PI * 2);
+    const fill = enemy.flash > 0 ? "#ffffff" : enemy.trick === "boom" || enemy.trick === "bomb" ? "#ff7a18" : "#db0007";
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = enemy.elite || enemy.kind === "boss" ? "#ffbc0d" : "#2d2d2d";
+    ctx.lineWidth = enemy.elite || enemy.kind === "boss" ? 4 : 3;
+    if (enemy.kind === "turret") {
+      roundRect(ctx, enemy.x - enemy.r, enemy.y - enemy.r, enemy.r * 2, enemy.r * 2, 8, fill);
+      ctx.strokeStyle = "#2d2d2d";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(enemy.x - (enemy.trick === "burst" ? 4 : 0), enemy.y - enemy.r);
+      ctx.lineTo(enemy.x - (enemy.trick === "burst" ? 4 : 0), enemy.y - enemy.r - 12);
+      if (enemy.trick === "burst") {
+        ctx.moveTo(enemy.x + 4, enemy.y - enemy.r);
+        ctx.lineTo(enemy.x + 4, enemy.y - enemy.r - 12);
+      }
+      ctx.stroke();
+    } else {
+      const wide = enemy.trick === "dash" ? enemy.r + 10 : enemy.kind === "boss" ? enemy.r + 8 : enemy.r;
+      ctx.beginPath();
+      ctx.ellipse(enemy.x, enemy.y, wide, enemy.r, enemy.dashLeft > 0 ? enemy.dashAngle : 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-    }
-    if (enemy.kind === "turret") {
-      ctx.strokeStyle = "#2d2d2d";
-      ctx.beginPath();
-      ctx.moveTo(enemy.x, enemy.y - enemy.r);
-      ctx.lineTo(enemy.x, enemy.y - enemy.r - 10);
-      ctx.stroke();
+      if (enemy.trick === "split") {
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(enemy.x, enemy.y - enemy.r + 4);
+        ctx.lineTo(enemy.x, enemy.y + enemy.r - 4);
+        ctx.stroke();
+      }
     }
     ctx.fillStyle = "#fff";
     ctx.beginPath();

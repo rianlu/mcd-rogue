@@ -1,0 +1,479 @@
+{
+  "note": "坐标是 960×540 房间里的像素，左上角为原点",
+  "maps": [
+    {
+      "stage": 1,
+      "key": "street",
+      "name": "街角",
+      "width": 960,
+      "height": 540,
+      "background": "maps/bg-01-street.png",
+      "obstacles": [
+        {
+          "file": "maps/obstacles/01-street-1.png",
+          "x": 70,
+          "y": 46,
+          "w": 280,
+          "h": 96
+        },
+        {
+          "file": "maps/obstacles/01-street-2.png",
+          "x": 610,
+          "y": 46,
+          "w": 280,
+          "h": 96
+        },
+        {
+          "file": "maps/obstacles/01-street-3.png",
+          "x": 70,
+          "y": 398,
+          "w": 280,
+          "h": 96
+        },
+        {
+          "file": "maps/obstacles/01-street-4.png",
+          "x": 610,
+          "y": 398,
+          "w": 280,
+          "h": 96
+        }
+      ]
+    },
+    {
+      "stage": 2,
+      "key": "kitchen",
+      "name": "后厨",
+      "width": 960,
+      "height": 540,
+      "background": "maps/bg-02-kitchen.png",
+      "obstacles": [
+        {
+          "file": "maps/obstacles/02-kitchen-1.png",
+          "x": 46,
+          "y": 70,
+          "w": 86,
+          "h": 400
+        },
+        {
+          "file": "maps/obstacles/02-kitchen-2.png",
+          "x": 190,
+          "y": 90,
+          "w": 78,
+          "h": 360
+        },
+        {
+          "file": "maps/obstacles/02-kitchen-3.png",
+          "x": 690,
+          "y": 80,
+          "w": 86,
+          "h": 390
+        },
+        {
+          "file": "maps/obstacles/02-kitchen-4.png",
+          "x": 840,
+          "y": 150,
+          "w": 72,
+          "h": 250
+        }
+      ]
+    },
+    {
+      "stage": 3,
+      "key": "park",
+      "name": "乐园",
+      "width": 960,
+      "height": 540,
+      "background": "maps/bg-03-park.png",
+      "obstacles": [
+        {
+          "file": "maps/obstacles/03-park-1.png",
+          "x": 152,
+          "y": 92,
+          "w": 56,
+          "h": 56
+        },
+        {
+          "file": "maps/obstacles/03-park-2.png",
+          "x": 392,
+          "y": 62,
+          "w": 56,
+          "h": 56
+        },
+        {
+          "file": "maps/obstacles/03-park-3.png",
+          "x": 692,
+          "y": 112,
+          "w": 56,
+          "h": 56
+        },
+        {
+          "file": "maps/obstacles/03-park-4.png",
+          "x": 222,
+          "y": 272,
+          "w": 56,
+          "h": 56
+        },
+        {
+          "file": "maps/obstacles/03-park-5.png",
+          "x": 492,
+          "y": 222,
+          "w": 56,
+          "h": 56
+        },
+        {
+          "file": "maps/obstacles/03-park-6.png",
+          "x": 732,
+          "y": 312,
+          "w": 56,
+          "h": 56
+        }
+      ]
+    },
+    {
+      "stage": 4,
+      "key": "rain",
+      "name": "雨棚",
+      "width": 960,
+      "height": 540,
+      "background": "maps/bg-04-rain.png",
+      "obstacles": [
+        {
+          "file": "maps/obstacles/04-rain-1.png",
+          "x": 196,
+          "y": 96,
+          "w": 108,
+          "h": 108
+        },
+        {
+          "file": "maps/obstacles/04-rain-2.png",
+          "x": 646,
+          "y": 306,
+          "w": 108,
+          "h": 108
+        },
+        {
+          "file": "maps/obstacles/04-rain-3.png",
+          "x": 46,
+          "y": 80,
+          "w": 54,
+          "h": 54
+        },
+        {
+          "file": "maps/obstacles/04-rain-4.png",
+          "x": 46,
+          "y": 160,
+          "w": 54,
+          "h": 54
+        },
+        {
+          "file": "maps/obstacles/04-rain-5.png",
+          "x": 46,
+          "y": 250,
+          "w": 54,
+          "h": 54
+        },
+        {
+          "file": "maps/obstacles/04-rain-6.png",
+          "x": 860,
+          "y": 250,
+          "w": 54,
+          "h": 54
+        },
+        {
+          "file": "maps/obstacles/04-rain-7.png",
+          "x": 860,
+          "y": 340,
+          "w": 54,
+          "h": 54
+        },
+        {
+          "file": "maps/obstacles/04-rain-8.png",
+          "x": 860,
+          "y": 430,
+          "w": 54,
+          "h": 54
+        }
+      ]
+    },
+    {
+      "stage": 5,
+      "key": "market",
+      "name": "夜市",
+      "width": 960,
+      "height": 540,
+      "background": "maps/bg-05-market.png",
+      "obstacles": [
+        {
+          "file": "maps/obstacles/05-market-1.png",
+          "x": 70,
+          "y": 36,
+          "w": 210,
+          "h": 96
+        },
+        {
+          "file": "maps/obstacles/05-market-2.png",
+          "x": 560,
+          "y": 36,
+          "w": 210,
+          "h": 96
+        },
+        {
+          "file": "maps/obstacles/05-market-3.png",
+          "x": 70,
+          "y": 400,
+          "w": 210,
+          "h": 96
+        },
+        {
+          "file": "maps/obstacles/05-market-4.png",
+          "x": 560,
+          "y": 400,
+          "w": 210,
+          "h": 96
+        }
+      ]
+    },
+    {
+      "stage": 6,
+      "key": "picnic",
+      "name": "野餐",
+      "width": 960,
+      "height": 540,
+      "background": "maps/bg-06-picnic.png",
+      "obstacles": [
+        {
+          "file": "maps/obstacles/06-picnic-1.png",
+          "x": 174,
+          "y": 92,
+          "w": 92,
+          "h": 56
+        },
+        {
+          "file": "maps/obstacles/06-picnic-2.png",
+          "x": 654,
+          "y": 82,
+          "w": 92,
+          "h": 56
+        },
+        {
+          "file": "maps/obstacles/06-picnic-3.png",
+          "x": 424,
+          "y": 222,
+          "w": 92,
+          "h": 56
+        },
+        {
+          "file": "maps/obstacles/06-picnic-4.png",
+          "x": 154,
+          "y": 372,
+          "w": 92,
+          "h": 56
+        },
+        {
+          "file": "maps/obstacles/06-picnic-5.png",
+          "x": 674,
+          "y": 362,
+          "w": 92,
+          "h": 56
+        }
+      ]
+    },
+    {
+      "stage": 7,
+      "key": "station",
+      "name": "车站",
+      "width": 960,
+      "height": 540,
+      "background": "maps/bg-07-station.png",
+      "obstacles": [
+        {
+          "file": "maps/obstacles/07-station-1.png",
+          "x": 120,
+          "y": 70,
+          "w": 250,
+          "h": 48
+        },
+        {
+          "file": "maps/obstacles/07-station-2.png",
+          "x": 500,
+          "y": 230,
+          "w": 250,
+          "h": 48
+        },
+        {
+          "file": "maps/obstacles/07-station-3.png",
+          "x": 180,
+          "y": 420,
+          "w": 250,
+          "h": 48
+        }
+      ]
+    },
+    {
+      "stage": 8,
+      "key": "roof",
+      "name": "屋顶",
+      "width": 960,
+      "height": 540,
+      "background": "maps/bg-08-roof.png",
+      "obstacles": [
+        {
+          "file": "maps/obstacles/08-roof-1.png",
+          "x": 60,
+          "y": 50,
+          "w": 64,
+          "h": 64
+        },
+        {
+          "file": "maps/obstacles/08-roof-2.png",
+          "x": 150,
+          "y": 50,
+          "w": 64,
+          "h": 64
+        },
+        {
+          "file": "maps/obstacles/08-roof-3.png",
+          "x": 760,
+          "y": 50,
+          "w": 64,
+          "h": 64
+        },
+        {
+          "file": "maps/obstacles/08-roof-4.png",
+          "x": 850,
+          "y": 50,
+          "w": 64,
+          "h": 64
+        },
+        {
+          "file": "maps/obstacles/08-roof-5.png",
+          "x": 60,
+          "y": 420,
+          "w": 64,
+          "h": 64
+        },
+        {
+          "file": "maps/obstacles/08-roof-6.png",
+          "x": 150,
+          "y": 420,
+          "w": 64,
+          "h": 64
+        },
+        {
+          "file": "maps/obstacles/08-roof-7.png",
+          "x": 760,
+          "y": 420,
+          "w": 64,
+          "h": 64
+        }
+      ]
+    },
+    {
+      "stage": 9,
+      "key": "party",
+      "name": "派对",
+      "width": 960,
+      "height": 540,
+      "background": "maps/bg-09-party.png",
+      "obstacles": [
+        {
+          "file": "maps/obstacles/09-party-1.png",
+          "x": 170,
+          "y": 70,
+          "w": 160,
+          "h": 160
+        },
+        {
+          "file": "maps/obstacles/09-party-2.png",
+          "x": 600,
+          "y": 90,
+          "w": 160,
+          "h": 160
+        },
+        {
+          "file": "maps/obstacles/09-party-3.png",
+          "x": 380,
+          "y": 310,
+          "w": 160,
+          "h": 160
+        }
+      ]
+    },
+    {
+      "stage": 10,
+      "key": "boss",
+      "name": "头目场",
+      "width": 960,
+      "height": 540,
+      "background": "maps/bg-10-boss.png",
+      "obstacles": [
+        {
+          "file": "maps/obstacles/10-boss-1.png",
+          "x": 36,
+          "y": 36,
+          "w": 90,
+          "h": 48
+        },
+        {
+          "file": "maps/obstacles/10-boss-2.png",
+          "x": 834,
+          "y": 36,
+          "w": 90,
+          "h": 48
+        },
+        {
+          "file": "maps/obstacles/10-boss-3.png",
+          "x": 36,
+          "y": 456,
+          "w": 90,
+          "h": 48
+        },
+        {
+          "file": "maps/obstacles/10-boss-4.png",
+          "x": 834,
+          "y": 456,
+          "w": 90,
+          "h": 48
+        }
+      ]
+    },
+    {
+      "stage": 11,
+      "key": "endless",
+      "name": "无尽",
+      "width": 960,
+      "height": 540,
+      "background": "maps/bg-11-endless.png",
+      "obstacles": [
+        {
+          "file": "maps/obstacles/11-endless-1.png",
+          "x": 102,
+          "y": 64,
+          "w": 78,
+          "h": 172
+        },
+        {
+          "file": "maps/obstacles/11-endless-2.png",
+          "x": 102,
+          "y": 304,
+          "w": 78,
+          "h": 172
+        },
+        {
+          "file": "maps/obstacles/11-endless-3.png",
+          "x": 780,
+          "y": 64,
+          "w": 78,
+          "h": 172
+        },
+        {
+          "file": "maps/obstacles/11-endless-4.png",
+          "x": 780,
+          "y": 304,
+          "w": 78,
+          "h": 172
+        }
+      ]
+    }
+  ]
+}

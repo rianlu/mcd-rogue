@@ -113,7 +113,7 @@ function shopHtml() {
     .join("");
   return `<section class="panel sheet"><h2>商店</h2><div class="goods">${cards}</div>
     <div class="shop-actions">
-      <button class="btn white" type="button" data-refresh ${hud.gold < 20 || hud.refreshes >= 2 ? "disabled" : ""}>刷新 20</button>
+      <button class="btn white" type="button" data-refresh ${hud.refreshes >= 4 || hud.gold < hud.refreshCost ? "disabled" : ""}>${hud.refreshes >= 4 ? "不能再刷新" : hud.refreshCost === 0 ? "免费刷新" : `刷新 ${hud.refreshCost}`}</button>
       <button class="btn gold" type="button" data-continue>继续</button>
     </div>
     <div class="shop-slots" id="shop-slots"></div></section>`;
